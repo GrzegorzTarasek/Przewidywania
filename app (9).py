@@ -20,7 +20,10 @@ TEAM_MAPPING = {
 }
 
 st.sidebar.header("🔑 Autoryzacja API")
-api_key = st.sidebar.text_input("Klucz API (Football-Data):", type="password")
+raw_api_key = st.sidebar.text_input("Klucz API (Football-Data):", type="password")
+
+# Automatyczne czyszczenie klucza ze spacji i enterów
+api_key = raw_api_key.strip() if raw_api_key else ""
 
 if not api_key:
     st.warning("👈 Wklej swój klucz API w panelu po lewej stronie, aby załadować najbliższą kolejkę.")
@@ -114,7 +117,6 @@ if isinstance(matches_data, list) and matches_data:
     for m in matches_data:
         h, a = m['Gospodarz'], m['Gość']
         
-        # Jeśli drużyna z jakiegoś powodu nie ma statystyk w modelu
         if h not in ratings or a not in ratings:
             continue
             
