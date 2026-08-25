@@ -24,31 +24,51 @@ LEAGUES = {
         "country": "Anglia",
         "csv_code": "E0",
         "understat": "EPL",
+        "clubelo_country": "ENG",
     },
     "PD": {
         "label": "LaLiga",
         "country": "Hiszpania",
         "csv_code": "SP1",
         "understat": "La_liga",
+        "clubelo_country": "ESP",
     },
     "SA": {
         "label": "Serie A",
         "country": "Włochy",
         "csv_code": "I1",
         "understat": "Serie_A",
+        "clubelo_country": "ITA",
     },
     "BL1": {
         "label": "Bundesliga",
         "country": "Niemcy",
         "csv_code": "D1",
         "understat": "Bundesliga",
+        "clubelo_country": "GER",
     },
     "FL1": {
         "label": "Ligue 1",
         "country": "Francja",
         "csv_code": "F1",
         "understat": "Ligue_1",
+        "clubelo_country": "FRA",
     },
+}
+
+FPL_STATUS = {
+    "a": "Dostępny",
+    "d": "Wątpliwy",
+    "i": "Kontuzja",
+    "s": "Zawieszony",
+    "u": "Niedostępny",
+}
+
+FPL_POSITION = {
+    1: "Bramkarz",
+    2: "Obrońca",
+    3: "Pomocnik",
+    4: "Napastnik",
 }
 
 TEAM_ALIASES = {
@@ -239,6 +259,20 @@ def request_json(url, token=None, params=None, extra_headers=None):
     return response.json()
 
 
+def request_csv(url, params=None):
+    response = requests.get(
+        url,
+        params=params or {},
+        headers={"User-Agent": "football-predictor-streamlit/1.0"},
+        timeout=25,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"Źródło CSV zwróciło błąd {response.status_code}")
+    from io import StringIO
+
+    return pd.read_csv(StringIO(response.text))
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def fd_get(path, token, params=None, unfold=False):
     headers = {}
@@ -276,6 +310,44 @@ def get_team_matches(team_id, token, league_code):
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_match_detail(match_id, token):
     return fd_get(f"matches/{match_id}", token, unfold=True)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def load_fpl_bootstrap():
+    try:
+        return request_json("https://fantasy.premierleague.com/api/bootstrap-static/")
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def load_fpl_fixtures():
+    try:
+        return request_json("https://fantasy.premierleague.com/api/fixtures/")
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_clubelo_snapshot(country_code):
+    today = date.today()
+    for days_back in range(0, 10):
+        day = today - pd.Timedelta(days=days_back)
+        stamp = day.strftime("%Y-%m-%d")
+        for base_url in ("https://api.clubelo.com", "http://api.clubelo.com"):
+            try:
+                frame = request_csv(f"{base_url}/{stamp}")
+            except Exception:
+                continue
+            if frame.empty:
+                continue
+            if "Country" in frame.columns:
+                frame = frame[frame["Country"] == country_code].copy()
+            if "Level" in frame.columns:
+                frame = frame[pd.to_numeric(frame["Level"], errors="coerce").fillna(99) <= 1].copy()
+            frame["SnapshotDate"] = stamp
+            return frame.reset_index(drop=True)
+    return pd.DataFrame()
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -407,7 +479,16 @@ def unavailable_penalty(names):
     return max(0.82, 1.0 - min(count, 8) * 0.025)
 
 
-def predict_match(home_name, away_name, ratings, home_adv, avg_goals, unavailable_home=None, unavailable_away=None):
+def predict_match(
+    home_name,
+    away_name,
+    ratings,
+    home_adv,
+    avg_goals,
+    unavailable_home=None,
+    unavailable_away=None,
+    clubelo_df=None,
+):
     unavailable_home = unavailable_home or []
     unavailable_away = unavailable_away or []
     home_rating_name = find_rating_name(home_name, ratings)
@@ -421,6 +502,17 @@ def predict_match(home_name, away_name, ratings, home_adv, avg_goals, unavailabl
     away_xg = away["attack"] * home["defense"] * (1 / home_adv) * avg_goals
     home_xg = max(0.15, home_xg + home["trend"] * 0.08)
     away_xg = max(0.15, away_xg + away["trend"] * 0.08)
+
+    home_elo = clubelo_rating_for_team(home_name, clubelo_df)
+    away_elo = clubelo_rating_for_team(away_name, clubelo_df)
+    elo_diff = None
+    if home_elo and away_elo:
+        elo_diff = (home_elo["elo"] - away_elo["elo"]) + 65
+        home_factor = float(np.clip(np.exp(elo_diff / 1200), 0.84, 1.18))
+        away_factor = float(np.clip(np.exp(-elo_diff / 1200), 0.84, 1.18))
+        home_xg *= home_factor
+        away_xg *= away_factor
+
     home_xg *= unavailable_penalty(unavailable_home)
     away_xg *= unavailable_penalty(unavailable_away)
     home_win, draw, away_win, likely = probability_matrix(home_xg, away_xg)
@@ -434,6 +526,9 @@ def predict_match(home_name, away_name, ratings, home_adv, avg_goals, unavailabl
         "confidence": max(home_win, draw, away_win),
         "home_rating_name": home_rating_name,
         "away_rating_name": away_rating_name,
+        "home_elo": home_elo,
+        "away_elo": away_elo,
+        "elo_diff": elo_diff,
     }
 
 
@@ -519,6 +614,177 @@ def understat_players_dataframe(players):
             }
         )
     return pd.DataFrame(rows)
+
+
+def fpl_players_dataframe(bootstrap):
+    elements = bootstrap.get("elements", []) if isinstance(bootstrap, dict) else []
+    teams = bootstrap.get("teams", []) if isinstance(bootstrap, dict) else []
+    team_map = {team.get("id"): team for team in teams}
+    rows = []
+    for item in elements:
+        team = team_map.get(item.get("team"), {})
+        chance_this = item.get("chance_of_playing_this_round")
+        chance_next = item.get("chance_of_playing_next_round")
+        rows.append(
+            {
+                "Zawodnik": f"{item.get('first_name', '')} {item.get('second_name', '')}".strip()
+                or item.get("web_name"),
+                "Skrót": item.get("web_name"),
+                "Drużyna": team.get("name") or team.get("short_name"),
+                "TeamShort": team.get("short_name"),
+                "Pozycja": FPL_POSITION.get(item.get("element_type"), ""),
+                "Min": int(safe_float(item.get("minutes"))),
+                "Gole": int(safe_float(item.get("goals_scored"))),
+                "Asysty": int(safe_float(item.get("assists"))),
+                "xG": safe_float(item.get("expected_goals")),
+                "xA": safe_float(item.get("expected_assists")),
+                "Forma": safe_float(item.get("form")),
+                "PPM": safe_float(item.get("points_per_game")),
+                "Punkty": int(safe_float(item.get("total_points"))),
+                "Status": FPL_STATUS.get(item.get("status"), item.get("status", "")),
+                "Kod statusu": item.get("status"),
+                "Szansa teraz": chance_this if chance_this is not None else "",
+                "Szansa następna": chance_next if chance_next is not None else "",
+                "News": item.get("news") or "",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def match_by_normalized_name(target_name, candidates):
+    if not target_name or not candidates:
+        return None, 0.0
+    target = normalize_name(target_name)
+    scored = [
+        (candidate, SequenceMatcher(None, target, normalize_name(candidate)).ratio())
+        for candidate in candidates
+        if candidate
+    ]
+    return max(scored, key=lambda item: item[1], default=(None, 0.0))
+
+
+def fpl_team_filter(fpl_df, team_name):
+    if fpl_df.empty or "Drużyna" not in fpl_df.columns:
+        return pd.DataFrame()
+    candidates = sorted(fpl_df["Drużyna"].dropna().unique())
+    best_name, best_score = match_by_normalized_name(team_name, candidates)
+    if best_name and best_score >= 0.55:
+        return fpl_df[fpl_df["Drużyna"] == best_name].copy()
+    return pd.DataFrame()
+
+
+def team_unavailable_from_fpl(fpl_team_df):
+    if fpl_team_df.empty:
+        return []
+    missing = []
+    for _, player in fpl_team_df.iterrows():
+        chance_this = player.get("Szansa teraz", "")
+        chance_next = player.get("Szansa następna", "")
+        chance_values = [
+            safe_float(value, 100.0)
+            for value in [chance_this, chance_next]
+            if value not in ("", None)
+        ]
+        has_low_chance = any(value < 75 for value in chance_values)
+        has_bad_status = player.get("Kod statusu") in {"d", "i", "s", "u"}
+        if has_bad_status or has_low_chance:
+            label = player.get("Skrót") or player.get("Zawodnik")
+            news = player.get("News")
+            missing.append(f"{label} ({news})" if news else str(label))
+    return missing
+
+
+def build_auto_unavailable(standings_df, fpl_df):
+    result = {}
+    if standings_df.empty or fpl_df.empty:
+        return result
+    for _, row in standings_df.iterrows():
+        team_id = str(row["TeamID"])
+        fpl_team = fpl_team_filter(fpl_df, row["Drużyna"])
+        unavailable = team_unavailable_from_fpl(fpl_team)
+        if unavailable:
+            result[team_id] = unavailable
+    return result
+
+
+def merge_unavailable(manual, automatic, include_automatic=True):
+    merged = {}
+    keys = set(manual.keys()) | (set(automatic.keys()) if include_automatic else set())
+    for key in keys:
+        values = list(manual.get(key, []))
+        if include_automatic:
+            values.extend(automatic.get(key, []))
+        cleaned = []
+        seen = set()
+        for value in values:
+            normalized = normalize_name(value)
+            if normalized and normalized not in seen:
+                cleaned.append(value)
+                seen.add(normalized)
+        merged[key] = cleaned
+    return merged
+
+
+def clubelo_name_column(clubelo_df):
+    for column in ["Club", "club", "apiName", "displayName", "Name"]:
+        if column in clubelo_df.columns:
+            return column
+    return None
+
+
+def clubelo_rating_for_team(team_name, clubelo_df):
+    if clubelo_df is None or clubelo_df.empty or "Elo" not in clubelo_df.columns:
+        return None
+    name_column = clubelo_name_column(clubelo_df)
+    if not name_column:
+        return None
+    candidates = sorted(clubelo_df[name_column].dropna().astype(str).unique())
+    best_name, best_score = match_by_normalized_name(team_name, candidates)
+    if not best_name or best_score < 0.5:
+        return None
+    row = clubelo_df[clubelo_df[name_column].astype(str) == best_name].head(1)
+    if row.empty:
+        return None
+    return {
+        "name": best_name,
+        "elo": safe_float(row.iloc[0].get("Elo")),
+        "rank": int(safe_float(row.iloc[0].get("Rank"), 0)),
+        "date": row.iloc[0].get("SnapshotDate", ""),
+    }
+
+
+def source_status(label, available, detail):
+    return {
+        "Źródło": label,
+        "Status": "OK" if available else "Brak danych",
+        "Opis": detail,
+    }
+
+
+def render_theme():
+    st.markdown(
+        """
+        <style>
+        .block-container { padding-top: 1.6rem; padding-bottom: 2rem; }
+        div[data-testid="stMetric"] {
+            background: rgba(250, 250, 250, 0.72);
+            border: 1px solid rgba(49, 51, 63, 0.10);
+            border-radius: 8px;
+            padding: 0.75rem 0.85rem;
+        }
+        div[data-testid="stMetricValue"] { font-size: 1.35rem; }
+        div.stButton > button {
+            border-radius: 7px;
+            min-height: 2.35rem;
+        }
+        [data-testid="stDataFrame"] {
+            border: 1px solid rgba(49, 51, 63, 0.10);
+            border-radius: 8px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def select_team(team_id, team_name):
@@ -711,7 +977,7 @@ def render_event_timeline(match):
         st.write(item["Opis"])
 
 
-def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable):
+def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable, clubelo_df=None):
     try:
         match = get_match_detail(match_id, token)
     except Exception as exc:
@@ -752,6 +1018,7 @@ def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable
             avg_goals,
             unavailable.get(str(home.get("id")), []),
             unavailable.get(str(away.get("id")), []),
+            clubelo_df,
         )
         if prediction:
             cols = st.columns(5)
@@ -759,7 +1026,10 @@ def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable
             cols[1].metric("xG gospodarzy", f"{prediction['home_xg']:.2f}")
             cols[2].metric("xG gości", f"{prediction['away_xg']:.2f}")
             cols[3].metric("Szansa 1-X-2", f"{prediction['home_win']:.0%} / {prediction['draw']:.0%} / {prediction['away_win']:.0%}")
-            cols[4].metric("Pewność", f"{prediction['confidence']:.0%}")
+            if prediction.get("elo_diff") is None:
+                cols[4].metric("Pewność", f"{prediction['confidence']:.0%}")
+            else:
+                cols[4].metric("Elo diff", f"{prediction['elo_diff']:+.0f}")
 
     tabs = st.tabs(["Przebieg", "Gole i kartki", "Statystyki", "Składy"])
     with tabs[0]:
@@ -813,7 +1083,7 @@ def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable
                 st.dataframe(lineup, use_container_width=True, hide_index=True)
 
 
-def render_match(match, ratings, home_adv, avg_goals, unavailable):
+def render_match(match, ratings, home_adv, avg_goals, unavailable, clubelo_df=None):
     home = match.get("homeTeam", {})
     away = match.get("awayTeam", {})
     home_name = team_display_name(home)
@@ -853,6 +1123,7 @@ def render_match(match, ratings, home_adv, avg_goals, unavailable):
                 avg_goals,
                 unavailable.get(str(home.get("id")), []),
                 unavailable.get(str(away.get("id")), []),
+                clubelo_df,
             )
             if prediction:
                 st.caption(
@@ -900,7 +1171,18 @@ def team_understat_filter(df, team_name):
     return df[df["Drużyna"].map(lambda value: target in normalize_name(value) or normalize_name(value) in target)].copy()
 
 
-def render_team_page(team_id, team_name, token, league_code, standings_df, scorers_df, understat_df, ratings):
+def render_team_page(
+    team_id,
+    team_name,
+    token,
+    league_code,
+    standings_df,
+    scorers_df,
+    understat_df,
+    ratings,
+    fpl_df=None,
+    clubelo_df=None,
+):
     detail = get_team_detail(team_id, token)
     st.divider()
     top = st.columns([0.8, 3, 1.2])
@@ -942,8 +1224,9 @@ def render_team_page(team_id, team_name, token, league_code, standings_df, score
 
     team_scorers = scorers_df[scorers_df["TeamID"] == team_id].copy() if not scorers_df.empty else pd.DataFrame()
     team_understat = team_understat_filter(understat_df, team_name)
+    team_fpl = fpl_team_filter(fpl_df, team_name) if fpl_df is not None else pd.DataFrame()
 
-    tabs = st.tabs(["Skład", "Statystyki zawodników", "Mecze i forma", "Model"])
+    tabs = st.tabs(["Skład", "Statystyki zawodników", "Dostępność", "Mecze i forma", "Model"])
     with tabs[0]:
         if squad.empty:
             st.info("Football-Data nie zwróciło składu dla tego zespołu w Twoim planie API.")
@@ -976,6 +1259,33 @@ def render_team_page(team_id, team_name, token, league_code, standings_df, score
                 )
 
     with tabs[2]:
+        if league_code != "PL":
+            st.info("Automatyczna dostępność z FPL działa teraz dla Premier League. Dla pozostałych lig użyj ręcznej listy braków w panelu bocznym.")
+        elif team_fpl.empty:
+            st.info("Nie udało się dopasować tej drużyny do danych FPL.")
+        else:
+            missing = team_unavailable_from_fpl(team_fpl)
+            st.markdown("**Kontuzje, zawieszenia i wątpliwi zawodnicy z FPL**")
+            if missing:
+                st.dataframe(
+                    team_fpl[
+                        team_fpl["Skrót"].map(lambda name: any(normalize_name(str(name)) in normalize_name(item) for item in missing))
+                    ][["Zawodnik", "Pozycja", "Status", "Szansa teraz", "Szansa następna", "News", "Forma", "Punkty"]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.success("FPL nie oznacza aktualnie istotnych braków dla tej drużyny.")
+            st.markdown("**Kadra FPL i forma**")
+            st.dataframe(
+                team_fpl.sort_values(["Min", "Punkty"], ascending=False)[
+                    ["Zawodnik", "Pozycja", "Min", "Gole", "Asysty", "xG", "xA", "Forma", "PPM", "Punkty", "Status"]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    with tabs[3]:
         try:
             team_matches = get_team_matches(team_id, token, league_code).get("matches", [])
         except Exception as exc:
@@ -1004,21 +1314,23 @@ def render_team_page(team_id, team_name, token, league_code, standings_df, score
                 )
             st.dataframe(pd.DataFrame(form_rows), use_container_width=True, hide_index=True)
 
-    with tabs[3]:
+    with tabs[4]:
         model_name = find_rating_name(team_model_name(detail), ratings) or find_rating_name(team_name, ratings)
+        clubelo = clubelo_rating_for_team(team_model_name(detail), clubelo_df) or clubelo_rating_for_team(team_name, clubelo_df)
         if not model_name:
             st.info("Model nie znalazł odpowiednika tej drużyny w historycznych plikach CSV.")
         else:
             rating = ratings[model_name]
-            cols = st.columns(5)
+            cols = st.columns(6)
             cols[0].metric("Nazwa w modelu", model_name)
             cols[1].metric("Siła ataku", f"{rating['attack']:.3f}")
             cols[2].metric("Siła obrony", f"{rating['defense']:.3f}")
             cols[3].metric("Trend", f"{rating['trend']:+.3f}")
-            cols[4].metric("Mecze treningowe", int(rating["matches"]))
+            cols[4].metric("ClubElo", f"{clubelo['elo']:.0f}" if clubelo else "-")
+            cols[5].metric("Mecze treningowe", int(rating["matches"]))
             st.caption(
                 "Model uczy się z kilku poprzednich sezonów, ale mocniej waży bieżący sezon. "
-                "Niedostępni zawodnicy wpisani w panelu bocznym obniżają oczekiwane gole drużyny."
+                "ClubElo stabilizuje ocenę siły drużyny, a niedostępni zawodnicy obniżają oczekiwane gole."
             )
 
 
@@ -1032,6 +1344,7 @@ def init_state():
 
 def main():
     init_state()
+    render_theme()
     st.title("Football Predictor")
     st.caption("Top 5 lig, tabela, terminarz, składy, statystyki i model predykcyjny aktualizowany bieżącym sezonem.")
 
@@ -1044,6 +1357,8 @@ def main():
         current_season = season_start_year()
         st.caption(f"Sezon bazowy: {current_season}/{str(current_season + 1)[-2:]}")
         show_league_stats = st.checkbox("Pokaż statystyki ligi i model", value=False)
+        use_fpl_availability = st.checkbox("Uwzględniaj automatyczne braki FPL", value=True)
+        use_clubelo = st.checkbox("Uwzględniaj ClubElo w predykcji", value=True)
         st.divider()
         st.markdown("**Kontuzje / zawieszenia**")
         st.caption("Wpisuj po jednym zawodniku w linii. Model traktuje ich jako niedostępnych.")
@@ -1058,6 +1373,8 @@ def main():
             standings, matches, scorers = get_league_bundle(league_code, token.strip())
             understat_teams, understat_players = load_understat(league_meta["understat"], season_start_year())
             ratings, home_adv, avg_goals, history = train_prediction_model(league_meta["csv_code"])
+            fpl_bootstrap = load_fpl_bootstrap() if league_code == "PL" else {}
+            clubelo_df = load_clubelo_snapshot(league_meta["clubelo_country"]) if use_clubelo else pd.DataFrame()
     except Exception as exc:
         st.error(str(exc))
         st.stop()
@@ -1065,6 +1382,9 @@ def main():
     standings_df = standings_dataframe(standings)
     scorers_df = scorers_dataframe(scorers)
     understat_df = understat_players_dataframe(understat_players)
+    fpl_df = fpl_players_dataframe(fpl_bootstrap) if league_code == "PL" else pd.DataFrame()
+    auto_unavailable = build_auto_unavailable(standings_df, fpl_df) if league_code == "PL" else {}
+    active_clubelo = clubelo_df if use_clubelo else pd.DataFrame()
     last_md, last_matches, next_md, next_matches = split_matches_by_round(matches)
 
     with st.sidebar:
@@ -1080,10 +1400,16 @@ def main():
             st.session_state.unavailable[team_options[picked_team]] = [
                 line.strip() for line in unavailable_text.splitlines() if line.strip()
             ]
+            if use_fpl_availability and auto_unavailable.get(team_options[picked_team]):
+                with st.expander("Automatyczne braki FPL"):
+                    for item in auto_unavailable[team_options[picked_team]]:
+                        st.write(f"- {item}")
         st.divider()
         st.markdown("**Źródła danych**")
         st.caption("Football-Data: mecze, tabela, składy i strzelcy. Understat: xG, xA i kartki zawodników. football-data.co.uk: historia do modelu.")
-        st.caption("Transfermarkt traktuj jako ręczne źródło do weryfikacji kontuzji, bo nie ma oficjalnego darmowego API.")
+        st.caption("FPL: automatyczne braki i forma zawodników Premier League. ClubElo: niezależny rating siły drużyn.")
+
+    all_unavailable = merge_unavailable(st.session_state.unavailable, auto_unavailable, use_fpl_availability)
 
     left, right = st.columns([1.2, 1.0], gap="large")
     with left:
@@ -1091,7 +1417,7 @@ def main():
         st.markdown(f"**Ostatnia kolejka: {last_md or 'brak'}**")
         if last_matches:
             for match in last_matches:
-                render_match(match, ratings, home_adv, avg_goals, st.session_state.unavailable)
+                render_match(match, ratings, home_adv, avg_goals, all_unavailable, active_clubelo)
         else:
             st.info("Brak zakończonej kolejki w danych API.")
 
@@ -1099,7 +1425,7 @@ def main():
         st.markdown(f"**Następna kolejka: {next_md or 'brak'}**")
         if next_matches:
             for match in next_matches:
-                render_match(match, ratings, home_adv, avg_goals, st.session_state.unavailable)
+                render_match(match, ratings, home_adv, avg_goals, all_unavailable, active_clubelo)
         else:
             st.info("Brak nadchodzącej kolejki w danych API.")
 
@@ -1117,7 +1443,8 @@ def main():
             ratings,
             home_adv,
             avg_goals,
-            st.session_state.unavailable,
+            all_unavailable,
+            active_clubelo,
         )
 
     if st.session_state.selected_team_id:
@@ -1130,6 +1457,8 @@ def main():
             scorers_df,
             understat_df,
             ratings,
+            fpl_df,
+            active_clubelo,
         )
 
     if show_league_stats:
@@ -1152,12 +1481,14 @@ def main():
             st.markdown("**Najmocniejsze drużyny wg modelu**")
             model_rows = []
             for name, rating in ratings.items():
+                clubelo = clubelo_rating_for_team(name, active_clubelo)
                 model_rows.append(
                     {
                         "Drużyna": name,
                         "Atak": rating["attack"],
                         "Obrona": rating["defense"],
                         "Trend": rating["trend"],
+                        "ClubElo": clubelo["elo"] if clubelo else np.nan,
                         "Wynik modelu": rating["attack"] / max(rating["defense"], 0.1) + rating["trend"] * 0.08,
                     }
                 )
@@ -1169,6 +1500,15 @@ def main():
                 )
             else:
                 st.info("Brak historii do trenowania modelu.")
+        st.markdown("**Status źródeł danych**")
+        status_rows = [
+            source_status("Football-Data API", bool(matches.get("matches")) and not standings_df.empty, "Tabela, terminarz, wyniki, składy, strzelcy"),
+            source_status("football-data.co.uk", not history.empty, "Historia wyników i statystyki do treningu modelu"),
+            source_status("Understat", not understat_df.empty, "xG, xA, strzały i kartki zawodników"),
+            source_status("FPL API", not fpl_df.empty if league_code == "PL" else False, "Dostępność i forma zawodników Premier League"),
+            source_status("ClubElo", not active_clubelo.empty, "Niezależny rating siły drużyn"),
+        ]
+        st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
 
 
 if __name__ == "__main__":
