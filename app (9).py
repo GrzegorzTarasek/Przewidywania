@@ -31,6 +31,7 @@ LEAGUES = {
         "country": "Hiszpania",
         "csv_code": "SP1",
         "understat": "La_liga",
+        "understat": "La_Liga",
         "clubelo_country": "ESP",
     },
     "SA": {
@@ -332,9 +333,11 @@ def load_fpl_fixtures():
 def load_clubelo_snapshot(country_code):
     today = date.today()
     for days_back in range(0, 10):
+    for days_back in range(0, 45):
         day = today - pd.Timedelta(days=days_back)
         stamp = day.strftime("%Y-%m-%d")
         for base_url in ("https://api.clubelo.com", "http://api.clubelo.com"):
+        for base_url in ("http://api.clubelo.com", "https://api.clubelo.com"):
             try:
                 frame = request_csv(f"{base_url}/{stamp}")
             except Exception:
@@ -343,8 +346,16 @@ def load_clubelo_snapshot(country_code):
                 continue
             if "Country" in frame.columns:
                 frame = frame[frame["Country"] == country_code].copy()
+            country_column = next((col for col in ["Country", "country"] if col in frame.columns), None)
+            if country_column:
+                filtered = frame[frame[country_column] == country_code].copy()
+                if not filtered.empty:
+                    frame = filtered
             if "Level" in frame.columns:
                 frame = frame[pd.to_numeric(frame["Level"], errors="coerce").fillna(99) <= 1].copy()
+                top_level = frame[pd.to_numeric(frame["Level"], errors="coerce").fillna(99) <= 1].copy()
+                if not top_level.empty:
+                    frame = top_level
             frame["SnapshotDate"] = stamp
             return frame.reset_index(drop=True)
     return pd.DataFrame()
@@ -356,18 +367,41 @@ def load_understat(understat_code, season):
     response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=25)
     if response.status_code >= 400:
         return {}, []
+    league_codes = [understat_code]
+    if understat_code == "La_Liga":
+        league_codes.append("La_liga")
+    elif understat_code == "La_liga":
+        league_codes.append("La_Liga")
+
+    seasons = list(dict.fromkeys([season, season - 1, season - 2, season - 3]))
 
     def extract_var(name, default):
         pattern = rf"var\s+{name}\s*=\s*JSON\.parse\('([^']*)'\)"
         match = re.search(pattern, response.text)
+        match = re.search(pattern, page_text)
         if not match:
             return default
         decoded = codecs.decode(match.group(1), "unicode_escape")
         return json.loads(decoded)
 
+    for league_code in league_codes:
+        for candidate_season in seasons:
+            url = f"https://understat.com/league/{league_code}/{candidate_season}"
+            try:
+                response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=25)
+            except Exception:
+                continue
+            if response.status_code >= 400:
+                continue
+            page_text = response.text
     teams = extract_var("teamsData", {})
     players = extract_var("playersData", [])
     return teams, players
+            teams = extract_var("teamsData", {})
+            players = extract_var("playersData", [])
+            if teams or players:
+                return teams, players, candidate_season
+    return {}, [], None
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -754,9 +788,11 @@ def clubelo_rating_for_team(team_name, clubelo_df):
 
 
 def source_status(label, available, detail):
+def source_status(label, available, detail, required=False):
     return {
         "Źródło": label,
         "Status": "OK" if available else "Brak danych",
+        "Status": "OK" if available else ("Brak danych" if required else "Pominięte"),
         "Opis": detail,
     }
 
@@ -1372,6 +1408,10 @@ def main():
         with st.spinner("Pobieram dane ligi..."):
             standings, matches, scorers = get_league_bundle(league_code, token.strip())
             understat_teams, understat_players = load_understat(league_meta["understat"], season_start_year())
+            understat_teams, understat_players, understat_season = load_understat(
+                league_meta["understat"],
+                season_start_year(),
+            )
             ratings, home_adv, avg_goals, history = train_prediction_model(league_meta["csv_code"])
             fpl_bootstrap = load_fpl_bootstrap() if league_code == "PL" else {}
             clubelo_df = load_clubelo_snapshot(league_meta["clubelo_country"]) if use_clubelo else pd.DataFrame()
@@ -1503,10 +1543,32 @@ def main():
         st.markdown("**Status źródeł danych**")
         status_rows = [
             source_status("Football-Data API", bool(matches.get("matches")) and not standings_df.empty, "Tabela, terminarz, wyniki, składy, strzelcy"),
+            source_status(
+                "Football-Data API",
+                bool(matches.get("matches")) and not standings_df.empty,
+                "Tabela, terminarz, wyniki, składy, strzelcy",
+                required=True,
+            ),
             source_status("football-data.co.uk", not history.empty, "Historia wyników i statystyki do treningu modelu"),
             source_status("Understat", not understat_df.empty, "xG, xA, strzały i kartki zawodników"),
+            source_status(
+                "Understat",
+                not understat_df.empty,
+                f"xG, xA, strzały i kartki zawodników"
+                + (f" | użyty sezon: {understat_season}" if understat_season else " | opcjonalne źródło pominięte"),
+            ),
             source_status("FPL API", not fpl_df.empty if league_code == "PL" else False, "Dostępność i forma zawodników Premier League"),
             source_status("ClubElo", not active_clubelo.empty, "Niezależny rating siły drużyn"),
+            source_status(
+                "ClubElo",
+                not active_clubelo.empty,
+                "Niezależny rating siły drużyn"
+                + (
+                    f" | snapshot: {active_clubelo['SnapshotDate'].iloc[0]}"
+                    if not active_clubelo.empty and "SnapshotDate" in active_clubelo.columns
+                    else " | opcjonalne źródło pominięte"
+                ),
+            ),
         ]
         st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
 
