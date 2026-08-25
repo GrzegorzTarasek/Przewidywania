@@ -12,43 +12,50 @@ st.markdown("""
 Ta wersja aplikacji pobiera **najnowsze statystyki w czasie rzeczywistym** używając profesjonalnego interfejsu Football-Data.org.
 """)
 
-# --- POBIERANIE DANYCH Z API ---
-@st.cache_data(ttl=3600)  # Aktualizuj dane co godzinę (3600 sekund), aby nie wyczerpać darmowego limitu!
-def get_live_data():
-    # Pobieranie klucza API z bezpiecznego miejsca (Streamlit Secrets)
-    try:
-        api_key = st.secrets["FOOTBALL_API_KEY"]
-    except KeyError:
-        st.error("Błąd: Nie znaleziono klucza API w ustawieniach Streamlit Secrets!")
-        st.stop()
+# --- POLE DO WPISANIA KLUCZA API ---
+st.sidebar.header("🔑 Ustawienia API")
+api_key = st.sidebar.text_input(
+    "Wklej swój klucz API (Football-Data):", 
+    type="password", 
+    help="Klucz nie jest zapisywany na serwerze. Musisz go podać, aby pobrać dane."
+)
 
-    headers = {'X-Auth-Token': api_key}
+# Jeśli pole jest puste, zatrzymujemy aplikację i prosimy o klucz
+if not api_key:
+    st.warning("👈 Zanim zaczniemy, wklej swój klucz API w panelu po lewej stronie!")
+    st.info("Nie masz klucza? Zarejestruj się za darmo na football-data.org.")
+    st.stop()
+
+# --- POBIERANIE DANYCH Z API ---
+@st.cache_data(ttl=3600)  # Aktualizuj dane co godzinę (3600 sekund)
+def get_live_data(token):
+    headers = {'X-Auth-Token': token}
     
-    # ID ligi: PL to kod dla Premier League. Zwraca wszystkie rozegrane mecze z obecnego sezonu
+    # ID ligi: PL to kod dla Premier League. Zwraca wszystkie rozegrane mecze
     url = "https://api.football-data.org/v4/competitions/PL/matches?status=FINISHED"
     
     response = requests.get(url, headers=headers)
     
     if response.status_code != 200:
-        st.error(f"Błąd API: {response.status_code} - Sprawdź klucz API lub darmowe limity zapytań.")
+        st.error(f"Błąd API: {response.status_code} - Sprawdź, czy klucz jest poprawny!")
         st.stop()
         
     data = response.json()
     
-    # Ekstrakcja danych JSON do formy tabelarycznej
+    # Ekstrakcja danych JSON
     matches = []
     for match in data.get('matches', []):
         matches.append({
             'HomeTeam': match['homeTeam']['name'],
             'AwayTeam': match['awayTeam']['name'],
-            'FTHG': match['score']['fullTime']['home'], # Gole gospodarza
-            'FTAG': match['score']['fullTime']['away']  # Gole gościa
+            'FTHG': match['score']['fullTime']['home'],
+            'FTAG': match['score']['fullTime']['away']
         })
         
     df_raw = pd.DataFrame(matches)
     
     if df_raw.empty:
-         st.warning("API nie zwróciło żadnych zakończonych meczów. Trwa przerwa między sezonami?")
+         st.warning("API nie zwróciło żadnych meczów.")
          st.stop()
     
     # Przetwarzanie danych
@@ -67,8 +74,8 @@ def get_live_data():
     df = pd.merge(home_stats, away_stats, on='Druzyna', how='outer').fillna(0)
     return df
 
-# Pobranie danych przy uruchomieniu aplikacji
-df = get_live_data()
+# Uruchamiamy funkcję pobierającą przekazując wpisany w interfejsie klucz
+df = get_live_data(api_key)
 
 # --- ŚREDNIE LIGOWE ---
 avg_home_scored = df['Gole_Strzelone_Dom'].sum() / max(1, df['Mecze_Dom'].sum())
@@ -82,7 +89,6 @@ def calculate_match_xg(home_team, away_team):
     home_stats = get_team_stats(home_team)
     away_stats = get_team_stats(away_team)
     
-    # Zabezpieczenie przed dzieleniem przez zero na początku sezonu
     home_matches = max(1, home_stats['Mecze_Dom'])
     away_matches = max(1, away_stats['Mecze_Wyjazd'])
     
