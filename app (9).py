@@ -1,157 +1,140 @@
 import streamlit as st
-import requests
-import numpy as np
 import pandas as pd
+import numpy as np
 from scipy.stats import poisson
 
-# --- KONFIGURACJA STRONY ---
-st.set_page_config(page_title="PL Predictor - Live API", page_icon="📡")
+st.set_page_config(page_title="PL Predictor AI", page_icon="🧠")
+st.title("🧠 Premier League Predictor (AI & Form)")
+st.markdown("Ten model iteruje przez 4 lata historii mecz po meczu. Uczy się na błędach z przeszłości, a **największą wagę przykłada do obecnej formy** drużyn.")
 
-st.title("📡 Premier League Predictor (Live API)")
-st.markdown("""
-Ta wersja aplikacji pobiera **najnowsze statystyki w czasie rzeczywistym** używając profesjonalnego interfejsu Football-Data.org.
-""")
+@st.cache_data(ttl=86400)
+def load_historical_data():
+    seasons = ["2324", "2425", "2526", "2627"]
+    dfs = []
+    for s in seasons:
+        try:
+            url = f"https://www.football-data.co.uk/mmz4281/{s}/E0.csv"
+            df_temp = pd.read_csv(url, on_bad_lines='skip')
+            df_temp = df_temp[['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']].dropna()
+            df_temp['Date'] = pd.to_datetime(df_temp['Date'], format='%d/%m/%Y')
+            dfs.append(df_temp)
+        except Exception:
+            continue
+            
+    df_all = pd.concat(dfs, ignore_index=True).sort_values('Date').reset_index(drop=True)
+    return df_all
 
-# --- POLE DO WPISANIA KLUCZA API ---
-st.sidebar.header("🔑 Ustawienia API")
-api_key = st.sidebar.text_input(
-    "Wklej swój klucz API (Football-Data):", 
-    type="password", 
-    help="Klucz nie jest zapisywany na serwerze. Musisz go podać, aby pobrać dane."
-)
+df = load_historical_data()
+current_teams = sorted(list(set(df.tail(40)['HomeTeam'])))
 
-# Jeśli pole jest puste, zatrzymujemy aplikację i prosimy o klucz
-if not api_key:
-    st.warning("👈 Zanim zaczniemy, wklej swój klucz API w panelu po lewej stronie!")
-    st.info("Nie masz klucza? Zarejestruj się za darmo na football-data.org.")
-    st.stop()
+# --- TRENOWANIE MODELU (ITERACYJNE UCZENIE) ---
+# Współczynnik uczenia (Learning Rate). Im wyższy, tym model bardziej reaguje na ostatnie mecze (formę)
+ALPHA = 0.15 
+HOME_ADVANTAGE = 1.2 # Stała przewaga własnego boiska
+AVG_GOALS = 1.4      # Bazowa średnia goli
 
-# --- POBIERANIE DANYCH Z API ---
-@st.cache_data(ttl=3600)  # Aktualizuj dane co godzinę (3600 sekund)
-def get_live_data(token):
-    headers = {'X-Auth-Token': token}
-    
-    # ID ligi: PL to kod dla Premier League. Zwraca wszystkie rozegrane mecze
-    url = "https://api.football-data.org/v4/competitions/PL/matches?status=FINISHED"
-    
-    response = requests.get(url, headers=headers)
-    
-    if response.status_code != 200:
-        st.error(f"Błąd API: {response.status_code} - Sprawdź, czy klucz jest poprawny!")
-        st.stop()
-        
-    data = response.json()
-    
-    # Ekstrakcja danych JSON
-    matches = []
-    for match in data.get('matches', []):
-        matches.append({
-            'HomeTeam': match['homeTeam']['name'],
-            'AwayTeam': match['awayTeam']['name'],
-            'FTHG': match['score']['fullTime']['home'],
-            'FTAG': match['score']['fullTime']['away']
-        })
-        
-    df_raw = pd.DataFrame(matches)
-    
-    if df_raw.empty:
-         st.warning("API nie zwróciło żadnych meczów.")
-         st.stop()
-    
-    # Przetwarzanie danych
-    home_stats = df_raw.groupby('HomeTeam').agg(
-        Mecze_Dom=('FTHG', 'count'),
-        Gole_Strzelone_Dom=('FTHG', 'sum'),
-        Gole_Stracone_Dom=('FTAG', 'sum')
-    ).reset_index().rename(columns={'HomeTeam': 'Druzyna'})
-    
-    away_stats = df_raw.groupby('AwayTeam').agg(
-        Mecze_Wyjazd=('FTAG', 'count'),
-        Gole_Strzelone_Wyjazd=('FTAG', 'sum'),
-        Gole_Stracone_Wyjazd=('FTHG', 'sum')
-    ).reset_index().rename(columns={'AwayTeam': 'Druzyna'})
-    
-    df = pd.merge(home_stats, away_stats, on='Druzyna', how='outer').fillna(0)
-    return df
+# Słownik przechowujący dynamiczne ratingi
+ratings = {}
 
-# Uruchamiamy funkcję pobierającą przekazując wpisany w interfejsie klucz
-df = get_live_data(api_key)
+# Funkcja inicjalizująca nowe drużyny
+def init_team(team):
+    if team not in ratings:
+        ratings[team] = {'attack': 1.0, 'defense': 1.0, 'form_trend': 0.0}
 
-# --- ŚREDNIE LIGOWE ---
-avg_home_scored = df['Gole_Strzelone_Dom'].sum() / max(1, df['Mecze_Dom'].sum())
-avg_away_scored = df['Gole_Strzelone_Wyjazd'].sum() / max(1, df['Mecze_Wyjazd'].sum())
-
-# --- FUNKCJE MODELU ---
-def get_team_stats(team):
-    return df[df['Druzyna'] == team].iloc[0]
-
-def calculate_match_xg(home_team, away_team):
-    home_stats = get_team_stats(home_team)
-    away_stats = get_team_stats(away_team)
+# Pętla przez historię - dzień po dniu, mecz po meczu
+for index, row in df.iterrows():
+    home = row['HomeTeam']
+    away = row['AwayTeam']
+    home_goals = row['FTHG']
+    away_goals = row['FTAG']
     
-    home_matches = max(1, home_stats['Mecze_Dom'])
-    away_matches = max(1, away_stats['Mecze_Wyjazd'])
+    init_team(home)
+    init_team(away)
     
-    home_attack = (home_stats['Gole_Strzelone_Dom'] / home_matches) / avg_home_scored
-    away_defense = (away_stats['Gole_Stracone_Wyjazd'] / away_matches) / avg_home_scored
+    # 1. Przewidywanie modelu na ten moment historii
+    pred_home_xg = ratings[home]['attack'] * ratings[away]['defense'] * HOME_ADVANTAGE * AVG_GOALS
+    pred_away_xg = ratings[away]['attack'] * ratings[home]['defense'] * (1 / HOME_ADVANTAGE) * AVG_GOALS
     
-    away_attack = (away_stats['Gole_Strzelone_Wyjazd'] / away_matches) / avg_away_scored
-    home_defense = (home_stats['Gole_Stracone_Dom'] / home_matches) / avg_away_scored
+    # 2. Obliczanie błędu (Rzeczywistość vs Oczekiwania)
+    home_error = home_goals - pred_home_xg
+    away_error = away_goals - pred_away_xg
     
-    home_xg = home_attack * away_defense * avg_home_scored
-    away_xg = away_attack * home_defense * avg_away_scored
+    # 3. Aktualizacja ratingów i "formy" na podstawie błędów
+    # Gospodarze: Strzelili więcej niż zakładano? Atak rośnie, obrona gości słabnie.
+    ratings[home]['attack'] += ALPHA * home_error * 0.1
+    ratings[away]['defense'] += ALPHA * home_error * 0.1 # Tracą obronę, jeśli stracili niespodziewanie gole
     
-    return home_xg, away_xg
-
-def generate_poisson_matrix(home_xg, away_xg, max_goals=6):
-    score_matrix = np.zeros((max_goals, max_goals))
-    for i in range(max_goals):
-        for j in range(max_goals):
-            score_matrix[i, j] = poisson.pmf(i, home_xg) * poisson.pmf(j, away_xg)
-    return score_matrix
+    # Goście:
+    ratings[away]['attack'] += ALPHA * away_error * 0.1
+    ratings[home]['defense'] += ALPHA * away_error * 0.1
+    
+    # Zapis trendu formy (skumulowany błąd z ostatnich spotkań jako momentum)
+    ratings[home]['form_trend'] = (ratings[home]['form_trend'] * 0.8) + (home_error * 0.2)
+    ratings[away]['form_trend'] = (ratings[away]['form_trend'] * 0.8) + (away_error * 0.2)
+    
+    # Zabezpieczenie przed ratingiem spadającym poniżej 0.1
+    ratings[home]['attack'] = max(0.1, ratings[home]['attack'])
+    ratings[home]['defense'] = max(0.1, ratings[home]['defense'])
+    ratings[away]['attack'] = max(0.1, ratings[away]['attack'])
+    ratings[away]['defense'] = max(0.1, ratings[away]['defense'])
 
 # --- INTERFEJS UŻYTKOWNIKA ---
-st.sidebar.header("Wybierz mecz")
-teams_list = df['Druzyna'].sort_values().tolist()
-home_team = st.sidebar.selectbox("Gospodarz (Home)", teams_list)
-away_team = st.sidebar.selectbox("Gość (Away)", teams_list, index=1)
+st.sidebar.header("Wybierz dzisiejszy mecz")
+home_team = st.sidebar.selectbox("Gospodarz (Home)", current_teams)
+away_team = st.sidebar.selectbox("Gość (Away)", current_teams, index=1)
 
-if home_team == away_team:
-    st.sidebar.error("Wybierz różne drużyny!")
+if home_team != away_team:
+    
+    # Wyciąganie najnowszych, zaktualizowanych ratingów (stan na dzisiaj)
+    home_att = ratings[home_team]['attack']
+    home_def = ratings[home_team]['defense']
+    home_trend = ratings[home_team]['form_trend']
+    
+    away_att = ratings[away_team]['attack']
+    away_def = ratings[away_team]['defense']
+    away_trend = ratings[away_team]['form_trend']
+    
+    # Obliczanie ostatecznego xG
+    final_home_xg = home_att * away_def * HOME_ADVANTAGE * AVG_GOALS
+    final_away_xg = away_att * home_def * (1 / HOME_ADVANTAGE) * AVG_GOALS
+    
+    # Generowanie macierzy prawdopodobieństw (Poisson)
+    max_g = 6
+    matrix = np.zeros((max_g, max_g))
+    for i in range(max_g):
+        for j in range(max_g):
+            matrix[i, j] = poisson.pmf(i, final_home_xg) * poisson.pmf(j, final_away_xg)
+            
+    win_h = np.tril(matrix, -1).sum()
+    draw = np.trace(matrix)
+    win_a = np.triu(matrix, 1).sum()
+
+    st.write("---")
+    
+    # Pokazywanie Momentum/Formy
+    st.subheader("🔥 Obecne Momentum (Zgodność z oczekiwaniami w ostatnich meczach)")
+    st.markdown("Wskaźnik powyżej 0 oznacza, że drużyna regularnie **przebija oczekiwania** (jest w gazie). Spadki poniżej 0 to dołek formy.")
+    
+    c_f1, c_f2 = st.columns(2)
+    c_f1.metric(f"Wskaźnik Formy: {home_team}", round(home_trend, 2), delta=round(home_trend, 2))
+    c_f2.metric(f"Wskaźnik Formy: {away_team}", round(away_trend, 2), delta=round(away_trend, 2))
+
+    st.write("---")
+
+    # Wyświetlanie xG
+    st.subheader("🎯 Oczekiwane Gole na dzisiejszy mecz (xG)")
+    c1, c2 = st.columns(2)
+    c1.metric(f"{home_team}", round(final_home_xg, 2))
+    c2.metric(f"{away_team}", round(final_away_xg, 2))
+    
+    st.write("---")
+    
+    # Prawdopodobieństwa
+    st.subheader("📊 Prawdopodobieństwo Wyniku")
+    col1, col2, col3 = st.columns(3)
+    col1.info(f"Wygra {home_team}\n\n### {win_h*100:.1f}%")
+    col2.warning(f"Remis\n\n### {draw*100:.1f}%")
+    col3.success(f"Wygra {away_team}\n\n### {win_a*100:.1f}%")
+
 else:
-    home_xg, away_xg = calculate_match_xg(home_team, away_team)
-    prob_matrix = generate_poisson_matrix(home_xg, away_xg)
-    
-    home_win_prob = np.tril(prob_matrix, -1).sum()
-    draw_prob = np.trace(prob_matrix)
-    away_win_prob = np.triu(prob_matrix, 1).sum()
-
-    st.write("---")
-    
-    st.subheader(f"Statystyki LIVE ({int(df['Mecze_Dom'].sum() + df['Mecze_Wyjazd'].sum())} zakończonych meczów ligowych)")
-    st.write(f"**{home_team}** dom: {int(get_team_stats(home_team)['Gole_Strzelone_Dom'])} zdob. / {int(get_team_stats(home_team)['Gole_Stracone_Dom'])} strac.")
-    st.write(f"**{away_team}** wyjazd: {int(get_team_stats(away_team)['Gole_Strzelone_Wyjazd'])} zdob. / {int(get_team_stats(away_team)['Gole_Stracone_Wyjazd'])} strac.")
-
-    st.subheader("🎯 Wyliczone Oczekiwane Gole (xG)")
-    col1, col2 = st.columns(2)
-    col1.metric(f"xG - {home_team}", round(home_xg, 2))
-    col2.metric(f"xG - {away_team}", round(away_xg, 2))
-    
-    st.write("---")
-    
-    st.subheader("📊 Prawdopodobieństwo wyniku")
-    c1, c2, c3 = st.columns(3)
-    c1.info(f"Wygra {home_team}\n\n### {home_win_prob*100:.1f}%")
-    c2.warning(f"Remis\n\n### {draw_prob*100:.1f}%")
-    c3.success(f"Wygra {away_team}\n\n### {away_win_prob*100:.1f}%")
-    
-    st.write("---")
-    st.subheader("⚽ TOP 5 Dokładnych Wyników")
-    
-    scores = [(f"{i}:{j}", prob_matrix[i,j]) for i in range(6) for j in range(6)]
-    scores.sort(key=lambda x: x[1], reverse=True)
-    
-    top_5 = pd.DataFrame(scores[:5], columns=['Wynik', 'Szansa'])
-    top_5['Szansa'] = (top_5['Szansa'] * 100).round(2).astype(str) + '%'
-    
-    st.table(top_5.set_index('Wynik'))
+    st.sidebar.error("Wybierz dwie różne drużyny!")
