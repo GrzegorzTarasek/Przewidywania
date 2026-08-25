@@ -332,7 +332,6 @@ def load_fpl_fixtures():
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_clubelo_snapshot(country_code):
     today = date.today()
-    for days_back in range(0, 10):
     for days_back in range(0, 45):
         day = today - pd.Timedelta(days=days_back)
         stamp = day.strftime("%Y-%m-%d")
