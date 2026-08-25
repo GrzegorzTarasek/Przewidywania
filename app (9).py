@@ -3,6 +3,7 @@ import json
 import re
 from datetime import date
 from difflib import SequenceMatcher, get_close_matches
+from io import StringIO
 
 import numpy as np
 import pandas as pd
@@ -30,7 +31,6 @@ LEAGUES = {
         "label": "LaLiga",
         "country": "Hiszpania",
         "csv_code": "SP1",
-        "understat": "La_liga",
         "understat": "La_Liga",
         "clubelo_country": "ESP",
     },
@@ -269,8 +269,6 @@ def request_csv(url, params=None):
     )
     if response.status_code >= 400:
         raise RuntimeError(f"Źródło CSV zwróciło błąd {response.status_code}")
-    from io import StringIO
-
     return pd.read_csv(StringIO(response.text))
 
 
@@ -336,22 +334,18 @@ def load_clubelo_snapshot(country_code):
         day = today - pd.Timedelta(days=days_back)
         stamp = day.strftime("%Y-%m-%d")
         for base_url in ("https://api.clubelo.com", "http://api.clubelo.com"):
-        for base_url in ("http://api.clubelo.com", "https://api.clubelo.com"):
             try:
                 frame = request_csv(f"{base_url}/{stamp}")
             except Exception:
                 continue
             if frame.empty:
                 continue
-            if "Country" in frame.columns:
-                frame = frame[frame["Country"] == country_code].copy()
             country_column = next((col for col in ["Country", "country"] if col in frame.columns), None)
             if country_column:
                 filtered = frame[frame[country_column] == country_code].copy()
                 if not filtered.empty:
                     frame = filtered
             if "Level" in frame.columns:
-                frame = frame[pd.to_numeric(frame["Level"], errors="coerce").fillna(99) <= 1].copy()
                 top_level = frame[pd.to_numeric(frame["Level"], errors="coerce").fillna(99) <= 1].copy()
                 if not top_level.empty:
                     frame = top_level
@@ -362,10 +356,6 @@ def load_clubelo_snapshot(country_code):
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_understat(understat_code, season):
-    url = f"https://understat.com/league/{understat_code}/{season}"
-    response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=25)
-    if response.status_code >= 400:
-        return {}, []
     league_codes = [understat_code]
     if understat_code == "La_Liga":
         league_codes.append("La_liga")
@@ -373,15 +363,6 @@ def load_understat(understat_code, season):
         league_codes.append("La_Liga")
 
     seasons = list(dict.fromkeys([season, season - 1, season - 2, season - 3]))
-
-    def extract_var(name, default):
-        pattern = rf"var\s+{name}\s*=\s*JSON\.parse\('([^']*)'\)"
-        match = re.search(pattern, response.text)
-        match = re.search(pattern, page_text)
-        if not match:
-            return default
-        decoded = codecs.decode(match.group(1), "unicode_escape")
-        return json.loads(decoded)
 
     for league_code in league_codes:
         for candidate_season in seasons:
@@ -393,9 +374,15 @@ def load_understat(understat_code, season):
             if response.status_code >= 400:
                 continue
             page_text = response.text
-    teams = extract_var("teamsData", {})
-    players = extract_var("playersData", [])
-    return teams, players
+
+            def extract_var(name, default):
+                pattern = rf"var\s+{name}\s*=\s*JSON\.parse\('([^']*)'\)"
+                match = re.search(pattern, page_text)
+                if not match:
+                    return default
+                decoded = codecs.decode(match.group(1), "unicode_escape")
+                return json.loads(decoded)
+
             teams = extract_var("teamsData", {})
             players = extract_var("playersData", [])
             if teams or players:
@@ -786,11 +773,9 @@ def clubelo_rating_for_team(team_name, clubelo_df):
     }
 
 
-def source_status(label, available, detail):
 def source_status(label, available, detail, required=False):
     return {
         "Źródło": label,
-        "Status": "OK" if available else "Brak danych",
         "Status": "OK" if available else ("Brak danych" if required else "Pominięte"),
         "Opis": detail,
     }
@@ -1406,7 +1391,6 @@ def main():
     try:
         with st.spinner("Pobieram dane ligi..."):
             standings, matches, scorers = get_league_bundle(league_code, token.strip())
-            understat_teams, understat_players = load_understat(league_meta["understat"], season_start_year())
             understat_teams, understat_players, understat_season = load_understat(
                 league_meta["understat"],
                 season_start_year(),
@@ -1541,7 +1525,6 @@ def main():
                 st.info("Brak historii do trenowania modelu.")
         st.markdown("**Status źródeł danych**")
         status_rows = [
-            source_status("Football-Data API", bool(matches.get("matches")) and not standings_df.empty, "Tabela, terminarz, wyniki, składy, strzelcy"),
             source_status(
                 "Football-Data API",
                 bool(matches.get("matches")) and not standings_df.empty,
@@ -1549,15 +1532,13 @@ def main():
                 required=True,
             ),
             source_status("football-data.co.uk", not history.empty, "Historia wyników i statystyki do treningu modelu"),
-            source_status("Understat", not understat_df.empty, "xG, xA, strzały i kartki zawodników"),
             source_status(
                 "Understat",
-                not understat_df.empty,
+                bool(understat_df is not None and not understat_df.empty),
                 f"xG, xA, strzały i kartki zawodników"
                 + (f" | użyty sezon: {understat_season}" if understat_season else " | opcjonalne źródło pominięte"),
             ),
             source_status("FPL API", not fpl_df.empty if league_code == "PL" else False, "Dostępność i forma zawodników Premier League"),
-            source_status("ClubElo", not active_clubelo.empty, "Niezależny rating siły drużyn"),
             source_status(
                 "ClubElo",
                 not active_clubelo.empty,
