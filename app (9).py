@@ -21,12 +21,10 @@ TEAM_MAPPING = {
 
 st.sidebar.header("🔑 Autoryzacja API")
 raw_api_key = st.sidebar.text_input("Klucz API (Football-Data):", type="password")
-
-# Automatyczne czyszczenie klucza ze spacji i enterów
 api_key = raw_api_key.strip() if raw_api_key else ""
 
 if not api_key:
-    st.warning("👈 Wklej swój klucz API w panelu po lewej stronie, aby załadować najbliższą kolejkę.")
+    st.warning("👈 Wklej swój klucz API w panelu po lewej stronie, aby kontynuować.")
     st.stop()
 
 # --- 1. TRENOWANIE MODELU NA HISTORII CSV ---
@@ -74,25 +72,26 @@ ratings, HOME_ADV, AVG_GOALS = train_model()
 @st.cache_data(ttl=3600)
 def get_next_matchday_matches(token):
     headers = {'X-Auth-Token': token}
-    url = "https://api.football-data.org/v4/competitions/PL/matches"
-    response = requests.get(url, headers=headers)
+    # Jawnie wskazujemy sezon 2026, aby uniknąć błędów 400 z parsowaniem domyślnych zakresów przez API
+    url = "https://api.football-data.org/v4/competitions/PL/matches?season=2026"
+    
+    try:
+        response = requests.get(url, headers=headers)
+    except Exception as e:
+        return None, f"Błąd połączenia: {e}"
     
     if response.status_code != 200:
-        return None, f"Błąd API: {response.status_code}"
+        return None, f"Błąd API: {response.status_code} (Sprawdź, czy klucz jest poprawny)"
         
     data = response.json()
     all_matches = data.get('matches', [])
     
-    # Filtrujemy tylko mecze, które jeszcze się nie odbyły (SCHEDULED)
     scheduled = [m for m in all_matches if m['status'] == 'SCHEDULED']
     
     if not scheduled:
-        return [], "Brak zaplanowanych meczów w bazie API."
+        return [], "Brak zaplanowanych meczów w bazie API dla tego sezonu."
         
-    # Znajdujemy najniższy numer kolejki spośród zaplanowanych (czyli najbliższa kolejka)
     next_md = min(m['matchday'] for m in scheduled)
-    
-    # Wyciągamy wszystkie mecze z tej konkretnej kolejki
     next_matches = [m for m in scheduled if m['matchday'] == next_md]
     
     formatted_matches = []
@@ -123,7 +122,6 @@ if isinstance(matches_data, list) and matches_data:
         h_xg = ratings[h]['attack'] * ratings[a]['defense'] * HOME_ADV * AVG_GOALS
         a_xg = ratings[a]['attack'] * ratings[h]['defense'] * (1 / HOME_ADV) * AVG_GOALS
         
-        # Obliczanie Poissona
         matrix = np.zeros((6, 6))
         for i in range(6):
             for j in range(6): 
