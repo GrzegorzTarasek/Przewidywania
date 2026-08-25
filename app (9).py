@@ -1,31 +1,12 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import requests
 from scipy.stats import poisson
 
 st.set_page_config(page_title="PL Predictor Ultimate", page_icon="⚽", layout="wide")
-st.title("⚽ Premier League Predictor (Ultimate)")
+st.title("⚽ Premier League Predictor (Ultimate - Bez Błędów API)")
 
-# --- TŁUMACZ NAZW ---
-TEAM_MAPPING = {
-    "Arsenal FC": "Arsenal", "Aston Villa FC": "Aston Villa", "AFC Bournemouth": "Bournemouth",
-    "Brentford FC": "Brentford", "Brighton & Hove Albion FC": "Brighton", "Chelsea FC": "Chelsea",
-    "Crystal Palace FC": "Crystal Palace", "Everton FC": "Everton", "Fulham FC": "Fulham",
-    "Ipswich Town FC": "Ipswich", "Leicester City FC": "Leicester", "Liverpool FC": "Liverpool",
-    "Manchester City FC": "Man City", "Manchester United FC": "Man United", "Newcastle United FC": "Newcastle",
-    "Nottingham Forest FC": "Nottm Forest", "Southampton FC": "Southampton", "Tottenham Hotspur FC": "Tottenham",
-    "West Ham United FC": "West Ham", "Wolverhampton Wanderers FC": "Wolves"
-}
-
-st.sidebar.header("🔑 Autoryzacja")
-api_key = st.sidebar.text_input("Klucz API (Football-Data):", type="password")
-
-if not api_key:
-    st.warning("👈 Wklej klucz API, aby załadować interfejs.")
-    st.stop()
-
-# --- TRENOWANIE MODELU ---
+# --- TRENOWANIE MODELU NA HISTORİI CSV ---
 @st.cache_data(ttl=86400)
 def train_model():
     seasons = ["2324", "2425", "2526", "2627"]
@@ -65,80 +46,24 @@ def train_model():
     return ratings, HOME_ADV, AVG_GOALS
 
 ratings, HOME_ADV, AVG_GOALS = train_model()
-
-# --- POBIERANIE TERMINARZA ---
-@st.cache_data(ttl=3600)
-def get_all_matches(token):
-    headers = {'X-Auth-Token': token}
-    url = "https://api.football-data.org/v4/competitions/PL/matches"
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200: return []
-    
-    matches = []
-    for m in response.json().get('matches', []):
-        if m['status'] == 'SCHEDULED':
-            matches.append({
-                'Kolejka': m['matchday'],
-                'Data': m['utcDate'][:10],
-                'Gospodarz': TEAM_MAPPING.get(m['homeTeam']['name'], m['homeTeam']['name']),
-                'Gość': TEAM_MAPPING.get(m['awayTeam']['name'], m['awayTeam']['name'])
-            })
-    return pd.DataFrame(matches)
-
-df_matches = get_all_matches(api_key)
+teams_list = sorted(list(ratings.keys()))
 
 # --- UI: NAWIGACJA ---
-st.sidebar.divider()
 st.sidebar.header("⚙️ Tryb Pracy")
-mode = st.sidebar.radio("Wybierz widok:", ["📅 Przegląd Kolejki", "🔍 Analiza Szczegółowa"])
+mode = st.sidebar.radio("Wybierz widok:", ["🔍 Analiza Jednego Meczu", "🛠️ Generator Własnej Kolejki"])
 
-# --- WIDOK 1: KOLEJKA ---
-if mode == "📅 Przegląd Kolejki":
-    st.subheader("Wybierz kolejkę do symulacji")
-    if not df_matches.empty:
-        available_matchdays = sorted(df_matches['Kolejka'].unique())
-        selected_md = st.selectbox("Kolejka:", available_matchdays)
-        
-        md_matches = df_matches[df_matches['Kolejka'] == selected_md]
-        results = []
-        
-        for _, m in md_matches.iterrows():
-            h, a = m['Gospodarz'], m['Gość']
-            if h not in ratings or a not in ratings: continue
-                
-            h_xg = ratings[h]['attack'] * ratings[a]['defense'] * HOME_ADV * AVG_GOALS
-            a_xg = ratings[a]['attack'] * ratings[h]['defense'] * (1 / HOME_ADV) * AVG_GOALS
-            
-            matrix = np.zeros((6, 6))
-            for i in range(6):
-                for j in range(6): matrix[i, j] = poisson.pmf(i, h_xg) * poisson.pmf(j, a_xg)
-                    
-            results.append({
-                "Data": m['Data'], "Mecz": f"{h} - {a}",
-                "1": f"{np.tril(matrix, -1).sum()*100:.1f}%",
-                "X": f"{np.trace(matrix)*100:.1f}%",
-                "2": f"{np.triu(matrix, 1).sum()*100:.1f}%",
-                "xG Gospodarz": round(h_xg, 2), "xG Gość": round(a_xg, 2)
-            })
-            
-        st.dataframe(pd.DataFrame(results), use_container_width=True)
-    else:
-        st.info("Brak dostępnych meczów (lub problem z limitem API).")
-
-# --- WIDOK 2: SZCZEGÓŁY ---
-elif mode == "🔍 Analiza Szczegółowa":
-    st.subheader("Głęboka analiza statystyczna")
-    teams = sorted(list(ratings.keys()))
+# --- WIDOK 1: ANALIZA JEDNEGO MECZU ---
+if mode == "🔍 Analiza Jednego Meczu":
+    st.subheader("Głęboka analiza statystyczna konkretnego spotkania")
     c1, c2 = st.columns(2)
-    h_team = c1.selectbox("Wybierz Gospodarza:", teams)
-    a_team = c2.selectbox("Wybierz Gościa:", teams, index=1)
+    h_team = c1.selectbox("Wybierz Gospodarza:", teams_list)
+    a_team = c2.selectbox("Wybierz Gościa:", teams_list, index=1)
     
     if h_team != a_team:
         st.divider()
         h_xg = ratings[h_team]['attack'] * ratings[a_team]['defense'] * HOME_ADV * AVG_GOALS
         a_xg = ratings[a_team]['attack'] * ratings[h_team]['defense'] * (1 / HOME_ADV) * AVG_GOALS
         
-        # Wyświetlanie głębokich statystyk
         st.markdown("### ⚙️ Wskaźniki Modelu AI")
         col1, col2, col3, col4 = st.columns(4)
         col1.metric(f"Siła Ataku ({h_team})", round(ratings[h_team]['attack'], 2))
@@ -164,3 +89,44 @@ elif mode == "🔍 Analiza Szczegółowa":
         st.table(top_5.set_index('Wynik'))
     else:
         st.error("Wybierz dwie różne drużyny!")
+
+# --- WIDOK 2: GENERATOR WŁASNEJ KOLEJKI ---
+elif mode == "🛠️ Generator Własnej Kolejki":
+    st.subheader("Stwórz własny zestaw meczów (np. nadchodząca kolejka)")
+    st.markdown("Wybierz pary meczowe, które chcesz przeanalizować w formie zbiorczej tabeli.")
+    
+    # Pozwalamy użytkownikowi wybrać kilka meczów do symulacji
+    selected_matches = []
+    
+    num_matches = st.number_input("Ile meczów chcesz dodać do zestawienia?", min_value=1, max_value=10, value=5)
+    
+    st.divider()
+    
+    for i in range(int(num_matches)):
+        cols = st.columns(2)
+        h = cols[0].selectbox(f"Gospodarz #{i+1}", teams_list, key=f"h_{i}")
+        a = cols[1].selectbox(f"Gość #{i+1}", teams_list, key=f"a_{i}", index=(i+1)%len(teams_list))
+        selected_matches.append((h, a))
+        
+    if st.button("🚀 Symuluj wybrane mecze"):
+        results = []
+        for h, a in selected_matches:
+            if h == a: continue
+            h_xg = ratings[h]['attack'] * ratings[a]['defense'] * HOME_ADV * AVG_GOALS
+            a_xg = ratings[a]['attack'] * ratings[h]['defense'] * (1 / HOME_ADV) * AVG_GOALS
+            
+            matrix = np.zeros((6, 6))
+            for i in range(6):
+                for j in range(6): matrix[i, j] = poisson.pmf(i, h_xg) * poisson.pmf(j, a_xg)
+                
+            results.append({
+                "Mecz": f"{h} vs {a}",
+                "1": f"{np.tril(matrix, -1).sum()*100:.1f}%",
+                "X": f"{np.trace(matrix)*100:.1f}%",
+                "2": f"{np.triu(matrix, 1).sum()*100:.1f}%",
+                "xG Gospodarz": round(h_xg, 2), "xG Gość": round(a_xg, 2)
+            })
+            
+        st.divider()
+        st.subheader("📊 Wyniki symulacji zestawienia")
+        st.dataframe(pd.DataFrame(results), use_container_width=True)
