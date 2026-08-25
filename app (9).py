@@ -1,8 +1,7 @@
 import codecs
 import json
-import math
 import re
-from datetime import date, datetime
+from datetime import date
 from difflib import SequenceMatcher, get_close_matches
 
 import numpy as np
@@ -274,6 +273,11 @@ def get_team_matches(team_id, token, league_code):
     )
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_match_detail(match_id, token):
+    return fd_get(f"matches/{match_id}", token, unfold=True)
+
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_understat(understat_code, season):
     url = f"https://understat.com/league/{understat_code}/{season}"
@@ -522,6 +526,293 @@ def select_team(team_id, team_name):
     st.session_state.selected_team_name = team_name
 
 
+def select_match(match_id, match_name):
+    st.session_state.selected_match_id = int(match_id)
+    st.session_state.selected_match_name = match_name
+
+
+def close_match_view():
+    st.session_state.selected_match_id = None
+    st.session_state.selected_match_name = None
+
+
+def close_team_view():
+    st.session_state.selected_team_id = None
+    st.session_state.selected_team_name = None
+
+
+def display_minute(event):
+    minute = event.get("minute")
+    injury_time = event.get("injuryTime")
+    if minute is None:
+        return "-"
+    if injury_time:
+        return f"{minute}+{injury_time}'"
+    return f"{minute}'"
+
+
+def event_person_name(value):
+    if isinstance(value, dict):
+        return value.get("name") or value.get("firstName") or value.get("lastName") or "-"
+    if value:
+        return str(value)
+    return "-"
+
+
+def event_team_name(value):
+    if isinstance(value, dict):
+        return team_display_name(value)
+    if value:
+        return str(value)
+    return "-"
+
+
+def score_text(match):
+    score = match.get("score", {}).get("fullTime", {})
+    home_score = score.get("home")
+    away_score = score.get("away")
+    if home_score is None or away_score is None:
+        return "vs"
+    return f"{home_score}:{away_score}"
+
+
+def match_title(match):
+    home = team_display_name(match.get("homeTeam", {}))
+    away = team_display_name(match.get("awayTeam", {}))
+    return f"{home} - {away}"
+
+
+def goals_dataframe(match):
+    rows = []
+    for goal in match.get("goals", []) or []:
+        rows.append(
+            {
+                "Min": display_minute(goal),
+                "Drużyna": event_team_name(goal.get("team")),
+                "Strzelec": event_person_name(goal.get("scorer") or goal.get("player")),
+                "Asysta": event_person_name(goal.get("assist")),
+                "Typ": goal.get("type", ""),
+                "Wynik": goal.get("score", ""),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def bookings_dataframe(match):
+    rows = []
+    for booking in match.get("bookings", []) or []:
+        rows.append(
+            {
+                "Min": display_minute(booking),
+                "Drużyna": event_team_name(booking.get("team")),
+                "Zawodnik": event_person_name(booking.get("player")),
+                "Kartka": booking.get("card", booking.get("type", "")),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def substitutions_dataframe(match):
+    rows = []
+    for substitution in match.get("substitutions", []) or []:
+        rows.append(
+            {
+                "Min": display_minute(substitution),
+                "Drużyna": event_team_name(substitution.get("team")),
+                "Schodzi": event_person_name(substitution.get("playerOut") or substitution.get("out")),
+                "Wchodzi": event_person_name(substitution.get("playerIn") or substitution.get("in")),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def flatten_statistics(stats):
+    if not stats:
+        return {}
+    if isinstance(stats, dict):
+        return stats
+    if isinstance(stats, list):
+        flat = {}
+        for item in stats:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name") or item.get("type") or item.get("key")
+            value = item.get("value") or item.get("displayValue")
+            if name:
+                flat[name] = value
+        return flat
+    return {}
+
+
+def match_statistics_dataframe(match):
+    home = match.get("homeTeam", {})
+    away = match.get("awayTeam", {})
+    raw_home = flatten_statistics(home.get("statistics"))
+    raw_away = flatten_statistics(away.get("statistics"))
+
+    if not raw_home and not raw_away:
+        raw = match.get("statistics", {})
+        if isinstance(raw, dict):
+            raw_home = flatten_statistics(raw.get("home") or raw.get("homeTeam"))
+            raw_away = flatten_statistics(raw.get("away") or raw.get("awayTeam"))
+
+    rows = []
+    for key in sorted(set(raw_home.keys()) | set(raw_away.keys())):
+        rows.append(
+            {
+                "Statystyka": key,
+                team_display_name(home): raw_home.get(key, "-"),
+                team_display_name(away): raw_away.get(key, "-"),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def match_lineups_dataframe(match, side):
+    team = match.get(side, {})
+    rows = []
+    for key, label in [("lineup", "Wyjściowy"), ("bench", "Ławka")]:
+        for player in team.get(key, []) or []:
+            rows.append(
+                {
+                    "Status": label,
+                    "Zawodnik": event_person_name(player),
+                    "Pozycja": player.get("position", "") if isinstance(player, dict) else "",
+                    "Numer": player.get("shirtNumber", "") if isinstance(player, dict) else "",
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def render_event_timeline(match):
+    goals = []
+    for goal in match.get("goals", []) or []:
+        goals.append(
+            {
+                "minute": goal.get("minute") or 0,
+                "injury": goal.get("injuryTime") or 0,
+                "Opis": f"{display_minute(goal)} Gol: {event_person_name(goal.get('scorer') or goal.get('player'))} ({event_team_name(goal.get('team'))})",
+            }
+        )
+    cards = []
+    for booking in match.get("bookings", []) or []:
+        cards.append(
+            {
+                "minute": booking.get("minute") or 0,
+                "injury": booking.get("injuryTime") or 0,
+                "Opis": f"{display_minute(booking)} Kartka: {event_person_name(booking.get('player'))} ({event_team_name(booking.get('team'))})",
+            }
+        )
+    events = sorted(goals + cards, key=lambda item: (item["minute"], item["injury"]))
+    if not events:
+        st.info("API nie zwróciło osi wydarzeń dla tego meczu.")
+        return
+    for item in events:
+        st.write(item["Opis"])
+
+
+def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable):
+    try:
+        match = get_match_detail(match_id, token)
+    except Exception as exc:
+        st.warning(f"Nie udało się pobrać szczegółów meczu: {exc}")
+        return
+
+    st.divider()
+    home = match.get("homeTeam", {})
+    away = match.get("awayTeam", {})
+    home_name = team_display_name(home)
+    away_name = team_display_name(away)
+    date_text = match.get("utcDate", "")[:16].replace("T", " ")
+
+    top = st.columns([1.3, 0.7, 1.3, 1.0])
+    with top[0]:
+        if st.button(home_name, key=f"detail-home-{match_id}", use_container_width=True):
+            if home.get("id"):
+                select_team(home.get("id"), home_name)
+                st.rerun()
+    top[1].metric("Wynik", score_text(match))
+    with top[2]:
+        if st.button(away_name, key=f"detail-away-{match_id}", use_container_width=True):
+            if away.get("id"):
+                select_team(away.get("id"), away_name)
+                st.rerun()
+    with top[3]:
+        if st.button("Zamknij mecz", use_container_width=True):
+            close_match_view()
+            st.rerun()
+        st.caption(date_text or match.get("status", ""))
+
+    if match.get("status") != "FINISHED":
+        prediction = predict_match(
+            team_model_name(home),
+            team_model_name(away),
+            ratings,
+            home_adv,
+            avg_goals,
+            unavailable.get(str(home.get("id")), []),
+            unavailable.get(str(away.get("id")), []),
+        )
+        if prediction:
+            cols = st.columns(5)
+            cols[0].metric("Typowany wynik", prediction["score"])
+            cols[1].metric("xG gospodarzy", f"{prediction['home_xg']:.2f}")
+            cols[2].metric("xG gości", f"{prediction['away_xg']:.2f}")
+            cols[3].metric("Szansa 1-X-2", f"{prediction['home_win']:.0%} / {prediction['draw']:.0%} / {prediction['away_win']:.0%}")
+            cols[4].metric("Pewność", f"{prediction['confidence']:.0%}")
+
+    tabs = st.tabs(["Przebieg", "Gole i kartki", "Statystyki", "Składy"])
+    with tabs[0]:
+        render_event_timeline(match)
+
+    with tabs[1]:
+        goals_df = goals_dataframe(match)
+        bookings_df = bookings_dataframe(match)
+        substitutions_df = substitutions_dataframe(match)
+        left, right = st.columns(2)
+        with left:
+            st.markdown("**Bramki**")
+            if goals_df.empty:
+                st.info("Brak danych o bramkach w odpowiedzi API.")
+            else:
+                st.dataframe(goals_df, use_container_width=True, hide_index=True)
+        with right:
+            st.markdown("**Kartki**")
+            if bookings_df.empty:
+                st.info("Brak danych o kartkach w odpowiedzi API.")
+            else:
+                st.dataframe(bookings_df, use_container_width=True, hide_index=True)
+        st.markdown("**Zmiany**")
+        if substitutions_df.empty:
+            st.info("Brak danych o zmianach w odpowiedzi API.")
+        else:
+            st.dataframe(substitutions_df, use_container_width=True, hide_index=True)
+
+    with tabs[2]:
+        stats_df = match_statistics_dataframe(match)
+        if stats_df.empty:
+            st.info("Football-Data często nie udostępnia pełnych statystyk meczowych w darmowym planie. Jeśli endpoint je zwróci, pojawią się tutaj automatycznie.")
+        else:
+            st.dataframe(stats_df, use_container_width=True, hide_index=True)
+
+    with tabs[3]:
+        left, right = st.columns(2)
+        with left:
+            st.markdown(f"**{home_name}**")
+            lineup = match_lineups_dataframe(match, "homeTeam")
+            if lineup.empty:
+                st.info("Brak składu meczowego w odpowiedzi API.")
+            else:
+                st.dataframe(lineup, use_container_width=True, hide_index=True)
+        with right:
+            st.markdown(f"**{away_name}**")
+            lineup = match_lineups_dataframe(match, "awayTeam")
+            if lineup.empty:
+                st.info("Brak składu meczowego w odpowiedzi API.")
+            else:
+                st.dataframe(lineup, use_container_width=True, hide_index=True)
+
+
 def render_match(match, ratings, home_adv, avg_goals, unavailable):
     home = match.get("homeTeam", {})
     away = match.get("awayTeam", {})
@@ -532,7 +823,7 @@ def render_match(match, ratings, home_adv, avg_goals, unavailable):
     score = match.get("score", {}).get("fullTime", {})
     dt = match.get("utcDate", "")[:16].replace("T", " ")
 
-    cols = st.columns([1.5, 0.32, 1.5, 1.1])
+    cols = st.columns([1.4, 0.32, 1.4, 0.75, 1.1])
     with cols[0]:
         if st.button(home_name, key=f"home-{match.get('id')}", use_container_width=True):
             select_team(home.get("id"), home_name)
@@ -547,6 +838,10 @@ def render_match(match, ratings, home_adv, avg_goals, unavailable):
             select_team(away.get("id"), away_name)
             st.rerun()
     with cols[3]:
+        if st.button("Szczegóły", key=f"match-detail-{match.get('id')}", use_container_width=True):
+            select_match(match.get("id"), match_title(match))
+            st.rerun()
+    with cols[4]:
         if match.get("status") == "FINISHED":
             st.caption(dt)
         else:
@@ -619,8 +914,7 @@ def render_team_page(team_id, team_name, token, league_code, standings_df, score
     )
     with top[2]:
         if st.button("Zamknij widok drużyny", use_container_width=True):
-            st.session_state.selected_team_id = None
-            st.session_state.selected_team_name = None
+            close_team_view()
             st.rerun()
 
     team_row = standings_df[standings_df["TeamID"] == team_id]
@@ -731,6 +1025,8 @@ def render_team_page(team_id, team_name, token, league_code, standings_df, score
 def init_state():
     st.session_state.setdefault("selected_team_id", None)
     st.session_state.setdefault("selected_team_name", None)
+    st.session_state.setdefault("selected_match_id", None)
+    st.session_state.setdefault("selected_match_name", None)
     st.session_state.setdefault("unavailable", {})
 
 
@@ -747,6 +1043,7 @@ def main():
         league_code = league_label_to_code[selected_label]
         current_season = season_start_year()
         st.caption(f"Sezon bazowy: {current_season}/{str(current_season + 1)[-2:]}")
+        show_league_stats = st.checkbox("Pokaż statystyki ligi i model", value=False)
         st.divider()
         st.markdown("**Kontuzje / zawieszenia**")
         st.caption("Wpisuj po jednym zawodniku w linii. Model traktuje ich jako niedostępnych.")
@@ -813,6 +1110,16 @@ def main():
         else:
             render_standings(standings_df)
 
+    if st.session_state.selected_match_id:
+        render_match_page(
+            st.session_state.selected_match_id,
+            token.strip(),
+            ratings,
+            home_adv,
+            avg_goals,
+            st.session_state.unavailable,
+        )
+
     if st.session_state.selected_team_id:
         render_team_page(
             st.session_state.selected_team_id,
@@ -825,7 +1132,9 @@ def main():
             ratings,
         )
 
-    with st.expander("Statystyki ligi i model"):
+    if show_league_stats:
+        st.divider()
+        st.subheader("Statystyki ligi i model")
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("**Najlepsi strzelcy/asystenci**")
