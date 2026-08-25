@@ -72,8 +72,8 @@ ratings, HOME_ADV, AVG_GOALS = train_model()
 @st.cache_data(ttl=3600)
 def get_next_matchday_matches(token):
     headers = {'X-Auth-Token': token}
-    # Jawnie wskazujemy sezon 2026, aby uniknąć błędów 400 z parsowaniem domyślnych zakresów przez API
-    url = "https://api.football-data.org/v4/competitions/PL/matches?season=2026"
+    # Usunięto ?season=2026 – czysty endpoint automatycznie wskazuje bieżący, aktywny sezon
+    url = "https://api.football-data.org/v4/competitions/PL/matches"
     
     try:
         response = requests.get(url, headers=headers)
@@ -89,7 +89,7 @@ def get_next_matchday_matches(token):
     scheduled = [m for m in all_matches if m['status'] == 'SCHEDULED']
     
     if not scheduled:
-        return [], "Brak zaplanowanych meczów w bazie API dla tego sezonu."
+        return [], "Brak zaplanowanych meczów w bazie API (możliwa przerwa reprezentacyjna lub koniec/początek sezonu)."
         
     next_md = min(m['matchday'] for m in scheduled)
     next_matches = [m for m in scheduled if m['matchday'] == next_md]
