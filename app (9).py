@@ -1,12 +1,32 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import requests
 from scipy.stats import poisson
 
-st.set_page_config(page_title="PL Predictor Ultimate", page_icon="⚽", layout="wide")
-st.title("⚽ Premier League Predictor (Ultimate - Bez Błędów API)")
+st.set_page_config(page_title="PL Predictor - Następna Kolejka", page_icon="⚽", layout="wide")
+st.title("⚽ Premier League Predictor (Najbliższa Kolejka)")
+st.markdown("Aplikacja automatycznie wykrywa nadchodzącą kolejkę i symuluje wyniki za pomocą modelu AI (historia + forma).")
 
-# --- TRENOWANIE MODELU NA HISTORİI CSV ---
+# --- TŁUMACZ NAZW (API vs CSV) ---
+TEAM_MAPPING = {
+    "Arsenal FC": "Arsenal", "Aston Villa FC": "Aston Villa", "AFC Bournemouth": "Bournemouth",
+    "Brentford FC": "Brentford", "Brighton & Hove Albion FC": "Brighton", "Chelsea FC": "Chelsea",
+    "Crystal Palace FC": "Crystal Palace", "Everton FC": "Everton", "Fulham FC": "Fulham",
+    "Ipswich Town FC": "Ipswich", "Leicester City FC": "Leicester", "Liverpool FC": "Liverpool",
+    "Manchester City FC": "Man City", "Manchester United FC": "Man United", "Newcastle United FC": "Newcastle",
+    "Nottingham Forest FC": "Nottm Forest", "Southampton FC": "Southampton", "Tottenham Hotspur FC": "Tottenham",
+    "West Ham United FC": "West Ham", "Wolverhampton Wanderers FC": "Wolves"
+}
+
+st.sidebar.header("🔑 Autoryzacja API")
+api_key = st.sidebar.text_input("Klucz API (Football-Data):", type="password")
+
+if not api_key:
+    st.warning("👈 Wklej swój klucz API w panelu po lewej stronie, aby załadować najbliższą kolejkę.")
+    st.stop()
+
+# --- 1. TRENOWANIE MODELU NA HISTORII CSV ---
 @st.cache_data(ttl=86400)
 def train_model():
     seasons = ["2324", "2425", "2526", "2627"]
@@ -46,87 +66,85 @@ def train_model():
     return ratings, HOME_ADV, AVG_GOALS
 
 ratings, HOME_ADV, AVG_GOALS = train_model()
-teams_list = sorted(list(ratings.keys()))
 
-# --- UI: NAWIGACJA ---
-st.sidebar.header("⚙️ Tryb Pracy")
-mode = st.sidebar.radio("Wybierz widok:", ["🔍 Analiza Jednego Meczu", "🛠️ Generator Własnej Kolejki"])
+# --- 2. AUTOMATYCZNE POBIERANIE NAJBLIŻSZEJ KOLEJKI Z API ---
+@st.cache_data(ttl=3600)
+def get_next_matchday_matches(token):
+    headers = {'X-Auth-Token': token}
+    url = "https://api.football-data.org/v4/competitions/PL/matches"
+    response = requests.get(url, headers=headers)
+    
+    if response.status_code != 200:
+        return None, f"Błąd API: {response.status_code}"
+        
+    data = response.json()
+    all_matches = data.get('matches', [])
+    
+    # Filtrujemy tylko mecze, które jeszcze się nie odbyły (SCHEDULED)
+    scheduled = [m for m in all_matches if m['status'] == 'SCHEDULED']
+    
+    if not scheduled:
+        return [], "Brak zaplanowanych meczów w bazie API."
+        
+    # Znajdujemy najniższy numer kolejki spośród zaplanowanych (czyli najbliższa kolejka)
+    next_md = min(m['matchday'] for m in scheduled)
+    
+    # Wyciągamy wszystkie mecze z tej konkretnej kolejki
+    next_matches = [m for m in scheduled if m['matchday'] == next_md]
+    
+    formatted_matches = []
+    for m in next_matches:
+        formatted_matches.append({
+            'Kolejka': next_md,
+            'Data': m['utcDate'][:10],
+            'Gospodarz': TEAM_MAPPING.get(m['homeTeam']['name'], m['homeTeam']['name']),
+            'Gość': TEAM_MAPPING.get(m['awayTeam']['name'], m['awayTeam']['name'])
+        })
+        
+    return formatted_matches, next_md
 
-# --- WIDOK 1: ANALIZA JEDNEGO MECZU ---
-if mode == "🔍 Analiza Jednego Meczu":
-    st.subheader("Głęboka analiza statystyczna konkretnego spotkania")
-    c1, c2 = st.columns(2)
-    h_team = c1.selectbox("Wybierz Gospodarza:", teams_list)
-    a_team = c2.selectbox("Wybierz Gościa:", teams_list, index=1)
-    
-    if h_team != a_team:
-        st.divider()
-        h_xg = ratings[h_team]['attack'] * ratings[a_team]['defense'] * HOME_ADV * AVG_GOALS
-        a_xg = ratings[a_team]['attack'] * ratings[h_team]['defense'] * (1 / HOME_ADV) * AVG_GOALS
-        
-        st.markdown("### ⚙️ Wskaźniki Modelu AI")
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric(f"Siła Ataku ({h_team})", round(ratings[h_team]['attack'], 2))
-        col2.metric(f"Szczelność Obrony ({h_team})", round(ratings[h_team]['defense'], 2))
-        col3.metric(f"Siła Ataku ({a_team})", round(ratings[a_team]['attack'], 2))
-        col4.metric(f"Szczelność Obrony ({a_team})", round(ratings[a_team]['defense'], 2))
-        
-        st.markdown("### 🔥 Wskaźnik Momentum (Forma)")
-        cm1, cm2 = st.columns(2)
-        cm1.metric(h_team, round(ratings[h_team]['trend'], 3))
-        cm2.metric(a_team, round(ratings[a_team]['trend'], 3))
-        
-        st.markdown("### 🎯 Dokładny Wynik (TOP 5)")
-        matrix = np.zeros((6, 6))
-        for i in range(6):
-            for j in range(6): matrix[i, j] = poisson.pmf(i, h_xg) * poisson.pmf(j, a_xg)
-                
-        scores = [(f"{i}:{j}", matrix[i,j]) for i in range(6) for j in range(6)]
-        scores.sort(key=lambda x: x[1], reverse=True)
-        top_5 = pd.DataFrame(scores[:5], columns=['Wynik', 'Szansa'])
-        top_5['Szansa'] = (top_5['Szansa'] * 100).round(2).astype(str) + '%'
-        
-        st.table(top_5.set_index('Wynik'))
-    else:
-        st.error("Wybierz dwie różne drużyny!")
+matches_data, md_info = get_next_matchday_matches(api_key)
 
-# --- WIDOK 2: GENERATOR WŁASNEJ KOLEJKI ---
-elif mode == "🛠️ Generator Własnej Kolejki":
-    st.subheader("Stwórz własny zestaw meczów (np. nadchodząca kolejka)")
-    st.markdown("Wybierz pary meczowe, które chcesz przeanalizować w formie zbiorczej tabeli.")
-    
-    # Pozwalamy użytkownikowi wybrać kilka meczów do symulacji
-    selected_matches = []
-    
-    num_matches = st.number_input("Ile meczów chcesz dodać do zestawienia?", min_value=1, max_value=10, value=5)
-    
+# --- 3. WYŚWIETLANIE WYNIKÓW ---
+if isinstance(matches_data, list) and matches_data:
+    st.subheader(f"📅 Prognoza na Kolejkę #{md_info}")
     st.divider()
     
-    for i in range(int(num_matches)):
-        cols = st.columns(2)
-        h = cols[0].selectbox(f"Gospodarz #{i+1}", teams_list, key=f"h_{i}")
-        a = cols[1].selectbox(f"Gość #{i+1}", teams_list, key=f"a_{i}", index=(i+1)%len(teams_list))
-        selected_matches.append((h, a))
+    results = []
+    for m in matches_data:
+        h, a = m['Gospodarz'], m['Gość']
         
-    if st.button("🚀 Symuluj wybrane mecze"):
-        results = []
-        for h, a in selected_matches:
-            if h == a: continue
-            h_xg = ratings[h]['attack'] * ratings[a]['defense'] * HOME_ADV * AVG_GOALS
-            a_xg = ratings[a]['attack'] * ratings[h]['defense'] * (1 / HOME_ADV) * AVG_GOALS
+        # Jeśli drużyna z jakiegoś powodu nie ma statystyk w modelu
+        if h not in ratings or a not in ratings:
+            continue
             
-            matrix = np.zeros((6, 6))
-            for i in range(6):
-                for j in range(6): matrix[i, j] = poisson.pmf(i, h_xg) * poisson.pmf(j, a_xg)
+        h_xg = ratings[h]['attack'] * ratings[a]['defense'] * HOME_ADV * AVG_GOALS
+        a_xg = ratings[a]['attack'] * ratings[h]['defense'] * (1 / HOME_ADV) * AVG_GOALS
+        
+        # Obliczanie Poissona
+        matrix = np.zeros((6, 6))
+        for i in range(6):
+            for j in range(6): 
+                matrix[i, j] = poisson.pmf(i, h_xg) * poisson.pmf(j, a_xg)
                 
-            results.append({
-                "Mecz": f"{h} vs {a}",
-                "1": f"{np.tril(matrix, -1).sum()*100:.1f}%",
-                "X": f"{np.trace(matrix)*100:.1f}%",
-                "2": f"{np.triu(matrix, 1).sum()*100:.1f}%",
-                "xG Gospodarz": round(h_xg, 2), "xG Gość": round(a_xg, 2)
-            })
-            
-        st.divider()
-        st.subheader("📊 Wyniki symulacji zestawienia")
-        st.dataframe(pd.DataFrame(results), use_container_width=True)
+        win_h = np.tril(matrix, -1).sum() * 100
+        draw = np.trace(matrix) * 100
+        win_a = np.triu(matrix, 1).sum() * 100
+        
+        results.append({
+            "Data": m['Data'],
+            "Mecz": f"{h} vs {a}",
+            "Wygra Gospodarz (1)": f"{win_h:.1f}%",
+            "Remis (X)": f"{draw:.1f}%",
+            "Wygra Gość (2)": f"{win_a:.1f}%",
+            "xG Gospodarz": round(h_xg, 2),
+            "xG Gość": round(a_xg, 2)
+        })
+        
+    if results:
+        df_res = pd.DataFrame(results)
+        st.dataframe(df_res, use_container_width=True, hide_index=True)
+    else:
+        st.warning("Nie udało się dopasować drużyn do bazy danych modeli.")
+else:
+    st.error(f"Nie udało się pobrać danych: {md_info}")
