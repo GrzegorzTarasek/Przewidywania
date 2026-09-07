@@ -316,6 +316,41 @@ def load_clubelo_snapshot(country_code):
     return pd.DataFrame()
 
 @st.cache_data(ttl=86400, show_spinner=False)
+def load_understat(understat_code, season):
+    league_codes = [understat_code]
+    if understat_code == "La_Liga":
+        league_codes.append("La_liga")
+    elif understat_code == "La_liga":
+        league_codes.append("La_Liga")
+
+    seasons = list(dict.fromkeys([season, season - 1, season - 2, season - 3]))
+
+    for league_code in league_codes:
+        for candidate_season in seasons:
+            url = f"https://understat.com/league/{league_code}/{candidate_season}"
+            try:
+                response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=25)
+            except Exception:
+                continue
+            if response.status_code >= 400:
+                continue
+            page_text = response.text
+
+            def extract_var(name, default):
+                pattern = rf"var\s+{name}\s*=\s*JSON\.parse\('([^']*)'\)"
+                match = re.search(pattern, page_text)
+                if not match:
+                    return default
+                decoded = codecs.decode(match.group(1), "unicode_escape")
+                return json.loads(decoded)
+
+            teams = extract_var("teamsData", {})
+            players = extract_var("playersData", [])
+            if teams or players:
+                return teams, players, candidate_season
+    return {}, [], None
+
+@st.cache_data(ttl=86400, show_spinner=False)
 def load_history_csv(csv_code):
     frames = []
     for season in football_data_season_codes(back=5, forward=0):
@@ -460,7 +495,7 @@ def get_team_recent_form(team_id, token, league_code):
     try:
         matches_data = get_team_matches(team_id, token, league_code)
         finished = [m for m in matches_data.get("matches", []) if m.get("status") == "FINISHED"]
-        recent = finished[-5:] # Ostatnie 5 meczów
+        recent = finished[-5:]
         form_symbols = []
         for m in recent:
             home = m.get("homeTeam", {})
@@ -492,9 +527,6 @@ def predict_match(
 ):
     home_name_model = team_model_name(home_team_obj)
     away_name_model = team_model_name(away_team_obj)
-    
-    home_name_disp = team_display_name(home_team_obj)
-    away_name_disp = team_display_name(away_team_obj)
 
     home_rating_name = find_rating_name(home_name_model, ratings)
     if not home_rating_name:
@@ -829,7 +861,6 @@ def render_match_page(match_id, token, league_code, ratings, home_adv, avg_goals
         cols[2].metric("xG Gospodarzy", f"{prediction['home_xg']:.2f}")
         cols[3].metric("xG Gości", f"{prediction['away_xg']:.2f}")
 
-        # Obliczanie top 3 najbardziej prawdopodobnych wyników
         home_probs = [poisson.pmf(i, prediction['home_xg']) for i in range(6)]
         away_probs = [poisson.pmf(i, prediction['away_xg']) for i in range(6)]
         score_matrix = np.outer(home_probs, away_probs)
