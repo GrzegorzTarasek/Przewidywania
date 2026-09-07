@@ -893,7 +893,7 @@ def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable
             st.rerun()
         st.caption(date_text or match.get("status", ""))
 
-    st.markdown("### 📊 Szczegółowe Predykcje i Siły Zespołów")
+    st.markdown("### 📊 Zaawansowane Predykcje i Siły Zespołów")
     prediction = predict_match(
         team_model_name(home),
         team_model_name(away),
