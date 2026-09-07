@@ -492,17 +492,24 @@ def predict_match(
 ):
     unavailable_home = unavailable_home or []
     unavailable_away = unavailable_away or []
+    
     home_rating_name = find_rating_name(home_name, ratings)
+    if not home_rating_name:
+        ratings[home_name] = {"attack": 1.0, "defense": 1.0, "trend": 0.0, "matches": 0}
+        home_rating_name = home_name
+
     away_rating_name = find_rating_name(away_name, ratings)
-    if not home_rating_name or not away_rating_name:
-        return None
+    if not away_rating_name:
+        ratings[away_name] = {"attack": 1.0, "defense": 1.0, "trend": 0.0, "matches": 0}
+        away_rating_name = away_name
 
     home = ratings[home_rating_name]
     away = ratings[away_rating_name]
+    
     home_xg = home["attack"] * away["defense"] * home_adv * avg_goals
     away_xg = away["attack"] * home["defense"] * (1 / home_adv) * avg_goals
-    home_xg = max(0.15, home_xg + home["trend"] * 0.08)
-    away_xg = max(0.15, away_xg + away["trend"] * 0.08)
+    home_xg = max(0.15, home_xg + home.get("trend", 0.0) * 0.08)
+    away_xg = max(0.15, away_xg + away.get("trend", 0.0) * 0.08)
 
     home_elo = clubelo_rating_for_team(home_name, clubelo_df)
     away_elo = clubelo_rating_for_team(away_name, clubelo_df)
@@ -517,6 +524,7 @@ def predict_match(
     home_xg *= unavailable_penalty(unavailable_home)
     away_xg *= unavailable_penalty(unavailable_away)
     home_win, draw, away_win, likely = probability_matrix(home_xg, away_xg)
+    
     return {
         "home_xg": home_xg,
         "away_xg": away_xg,
@@ -929,8 +937,6 @@ def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable
             st.write(f"- Trend formy: `{a_data['trend']:+.3f}`")
             if prediction["away_elo"]:
                 st.write(f"- ClubElo: `{prediction['away_elo']['elo']:.0f}` (Ranking: {prediction['away_elo']['rank']})")
-    else:
-        st.info("Brak wystarczających danych historycznych do wygenerowania modelu dla tych drużyn.")
 
     tabs = st.tabs(["Przebieg", "Gole i kartki", "Składy"])
     with tabs[0]:
