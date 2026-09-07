@@ -11,7 +11,6 @@ import requests
 import streamlit as st
 from scipy.stats import poisson
 
-
 st.set_page_config(
     page_title="Football Predictor",
     page_icon="⚽",
@@ -172,29 +171,14 @@ TEAM_ALIASES = {
     "FC Lorient": "Lorient",
 }
 
-
 def normalize_name(value):
     if value is None:
         return ""
     text = str(value).lower()
     replacements = {
-        "&": "and",
-        "é": "e",
-        "è": "e",
-        "ê": "e",
-        "á": "a",
-        "à": "a",
-        "ã": "a",
-        "â": "a",
-        "í": "i",
-        "ó": "o",
-        "ö": "o",
-        "ø": "o",
-        "ú": "u",
-        "ü": "u",
-        "ñ": "n",
-        "ç": "c",
-        "ß": "ss",
+        "&": "and", "é": "e", "è": "e", "ê": "e", "á": "a", "à": "a",
+        "ã": "a", "â": "a", "í": "i", "ó": "o", "ö": "o", "ø": "o",
+        "ú": "u", "ü": "u", "ñ": "n", "ç": "c", "ß": "ss",
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
@@ -202,12 +186,10 @@ def normalize_name(value):
     text = re.sub(r"[^a-z0-9]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
-
 def team_display_name(team):
     if not isinstance(team, dict):
         return str(team)
     return team.get("shortName") or team.get("name") or team.get("tla") or "Nieznany zespół"
-
 
 def team_model_name(team):
     if not isinstance(team, dict):
@@ -221,11 +203,9 @@ def team_model_name(team):
         or "Nieznany zespół"
     )
 
-
 def season_start_year(today=None):
     today = today or date.today()
     return today.year if today.month >= 7 else today.year - 1
-
 
 def football_data_season_codes(back=5, forward=0):
     current = season_start_year()
@@ -234,7 +214,6 @@ def football_data_season_codes(back=5, forward=0):
         codes.append(f"{str(start)[-2:]}{str(start + 1)[-2:]}")
     return codes
 
-
 def safe_float(value, default=0.0):
     try:
         if value in (None, "") or pd.isna(value):
@@ -242,7 +221,6 @@ def safe_float(value, default=0.0):
         return float(value)
     except Exception:
         return default
-
 
 def request_json(url, token=None, params=None, extra_headers=None):
     headers = {"User-Agent": "football-predictor-streamlit/1.0"}
@@ -259,7 +237,6 @@ def request_json(url, token=None, params=None, extra_headers=None):
         raise RuntimeError(f"API zwróciło błąd {response.status_code}: {response.text[:220]}")
     return response.json()
 
-
 def request_csv(url, params=None):
     response = requests.get(
         url,
@@ -271,7 +248,6 @@ def request_csv(url, params=None):
         raise RuntimeError(f"Źródło CSV zwróciło błąd {response.status_code}")
     return pd.read_csv(StringIO(response.text))
 
-
 @st.cache_data(ttl=900, show_spinner=False)
 def fd_get(path, token, params=None, unfold=False):
     headers = {}
@@ -282,7 +258,6 @@ def fd_get(path, token, params=None, unfold=False):
         }
     return request_json(f"https://api.football-data.org/v4/{path.lstrip('/')}", token, params, headers)
 
-
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_league_bundle(league_code, token):
     standings = fd_get(f"competitions/{league_code}/standings", token)
@@ -290,11 +265,9 @@ def get_league_bundle(league_code, token):
     scorers = fd_get(f"competitions/{league_code}/scorers", token, params={"limit": 100})
     return standings, matches, scorers
 
-
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_team_detail(team_id, token):
     return fd_get(f"teams/{team_id}", token)
-
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_team_matches(team_id, token, league_code):
@@ -305,11 +278,9 @@ def get_team_matches(team_id, token, league_code):
         unfold=True,
     )
 
-
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_match_detail(match_id, token):
     return fd_get(f"matches/{match_id}", token, unfold=True)
-
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def load_fpl_bootstrap():
@@ -317,15 +288,6 @@ def load_fpl_bootstrap():
         return request_json("https://fantasy.premierleague.com/api/bootstrap-static/")
     except Exception:
         return {}
-
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def load_fpl_fixtures():
-    try:
-        return request_json("https://fantasy.premierleague.com/api/fixtures/")
-    except Exception:
-        return []
-
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_clubelo_snapshot(country_code):
@@ -352,7 +314,6 @@ def load_clubelo_snapshot(country_code):
             frame["SnapshotDate"] = stamp
             return frame.reset_index(drop=True)
     return pd.DataFrame()
-
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_understat(understat_code, season):
@@ -389,7 +350,6 @@ def load_understat(understat_code, season):
                 return teams, players, candidate_season
     return {}, [], None
 
-
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_history_csv(csv_code):
     frames = []
@@ -409,7 +369,6 @@ def load_history_csv(csv_code):
     data = pd.concat(frames, ignore_index=True)
     data["ParsedDate"] = pd.to_datetime(data["Date"], dayfirst=True, errors="coerce")
     return data.dropna(subset=["ParsedDate"]).sort_values("ParsedDate").reset_index(drop=True)
-
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def train_prediction_model(csv_code):
@@ -466,7 +425,6 @@ def train_prediction_model(csv_code):
 
     return ratings, home_adv, avg_goals, history
 
-
 def find_rating_name(team_name, ratings):
     if not ratings:
         return None
@@ -478,7 +436,6 @@ def find_rating_name(team_name, ratings):
         return normalized[normalized_target]
     best = get_close_matches(normalized_target, list(normalized.keys()), n=1, cutoff=0.55)
     return normalized[best[0]] if best else None
-
 
 def probability_matrix(home_xg, away_xg, max_goals=7):
     home_probs = [poisson.pmf(i, home_xg) for i in range(max_goals + 1)]
@@ -493,11 +450,35 @@ def probability_matrix(home_xg, away_xg, max_goals=7):
     )
     return home_win, draw, away_win, most_likely
 
-
 def unavailable_penalty(names):
     count = len([name for name in names if name.strip()])
     return max(0.82, 1.0 - min(count, 8) * 0.025)
 
+def clubelo_name_column(clubelo_df):
+    for column in ["Club", "club", "apiName", "displayName", "Name"]:
+        if column in clubelo_df.columns:
+            return column
+    return None
+
+def clubelo_rating_for_team(team_name, clubelo_df):
+    if clubelo_df is None or clubelo_df.empty or "Elo" not in clubelo_df.columns:
+        return None
+    name_column = clubelo_name_column(clubelo_df)
+    if not name_column:
+        return None
+    candidates = sorted(clubelo_df[name_column].dropna().astype(str).unique())
+    best_name, best_score = match_by_normalized_name(team_name, candidates)
+    if not best_name or best_score < 0.5:
+        return None
+    row = clubelo_df[clubelo_df[name_column].astype(str) == best_name].head(1)
+    if row.empty:
+        return None
+    return {
+        "name": best_name,
+        "elo": safe_float(row.iloc[0].get("Elo")),
+        "rank": int(safe_float(row.iloc[0].get("Rank"), 0)),
+        "date": row.iloc[0].get("SnapshotDate", ""),
+    }
 
 def predict_match(
     home_name,
@@ -551,7 +532,6 @@ def predict_match(
         "elo_diff": elo_diff,
     }
 
-
 def split_matches_by_round(matches):
     all_matches = matches.get("matches", [])
     finished = [match for match in all_matches if match.get("status") == "FINISHED" and match.get("matchday")]
@@ -562,10 +542,9 @@ def split_matches_by_round(matches):
     ]
     last_md = max((match["matchday"] for match in finished), default=None)
     next_md = min((match["matchday"] for match in future), default=None)
-    last_matches = [match for match in finished if match.get("matchday") == last_md] if last_md else []
-    next_matches = [match for match in future if match.get("matchday") == next_md] if next_md else []
+    last_matches = [match for match in finished if match.get("matchday"] == last_md] if last_md else []
+    next_matches = [match for match in future if match.get("matchday"] == next_md] if next_md else []
     return last_md, last_matches, next_md, next_matches
-
 
 def standings_dataframe(standings):
     rows = []
@@ -593,7 +572,6 @@ def standings_dataframe(standings):
             )
     return pd.DataFrame(rows)
 
-
 def scorers_dataframe(scorers):
     rows = []
     for item in scorers.get("scorers", []):
@@ -612,7 +590,6 @@ def scorers_dataframe(scorers):
             }
         )
     return pd.DataFrame(rows)
-
 
 def understat_players_dataframe(players):
     rows = []
@@ -634,7 +611,6 @@ def understat_players_dataframe(players):
             }
         )
     return pd.DataFrame(rows)
-
 
 def fpl_players_dataframe(bootstrap):
     elements = bootstrap.get("elements", []) if isinstance(bootstrap, dict) else []
@@ -670,7 +646,6 @@ def fpl_players_dataframe(bootstrap):
         )
     return pd.DataFrame(rows)
 
-
 def match_by_normalized_name(target_name, candidates):
     if not target_name or not candidates:
         return None, 0.0
@@ -682,7 +657,6 @@ def match_by_normalized_name(target_name, candidates):
     ]
     return max(scored, key=lambda item: item[1], default=(None, 0.0))
 
-
 def fpl_team_filter(fpl_df, team_name):
     if fpl_df.empty or "Drużyna" not in fpl_df.columns:
         return pd.DataFrame()
@@ -691,7 +665,6 @@ def fpl_team_filter(fpl_df, team_name):
     if best_name and best_score >= 0.55:
         return fpl_df[fpl_df["Drużyna"] == best_name].copy()
     return pd.DataFrame()
-
 
 def team_unavailable_from_fpl(fpl_team_df):
     if fpl_team_df.empty:
@@ -713,7 +686,6 @@ def team_unavailable_from_fpl(fpl_team_df):
             missing.append(f"{label} ({news})" if news else str(label))
     return missing
 
-
 def build_auto_unavailable(standings_df, fpl_df):
     result = {}
     if standings_df.empty or fpl_df.empty:
@@ -725,7 +697,6 @@ def build_auto_unavailable(standings_df, fpl_df):
         if unavailable:
             result[team_id] = unavailable
     return result
-
 
 def merge_unavailable(manual, automatic, include_automatic=True):
     merged = {}
@@ -743,43 +714,6 @@ def merge_unavailable(manual, automatic, include_automatic=True):
                 seen.add(normalized)
         merged[key] = cleaned
     return merged
-
-
-def clubelo_name_column(clubelo_df):
-    for column in ["Club", "club", "apiName", "displayName", "Name"]:
-        if column in clubelo_df.columns:
-            return column
-    return None
-
-
-def clubelo_rating_for_team(team_name, clubelo_df):
-    if clubelo_df is None or clubelo_df.empty or "Elo" not in clubelo_df.columns:
-        return None
-    name_column = clubelo_name_column(clubelo_df)
-    if not name_column:
-        return None
-    candidates = sorted(clubelo_df[name_column].dropna().astype(str).unique())
-    best_name, best_score = match_by_normalized_name(team_name, candidates)
-    if not best_name or best_score < 0.5:
-        return None
-    row = clubelo_df[clubelo_df[name_column].astype(str) == best_name].head(1)
-    if row.empty:
-        return None
-    return {
-        "name": best_name,
-        "elo": safe_float(row.iloc[0].get("Elo")),
-        "rank": int(safe_float(row.iloc[0].get("Rank"), 0)),
-        "date": row.iloc[0].get("SnapshotDate", ""),
-    }
-
-
-def source_status(label, available, detail, required=False):
-    return {
-        "Źródło": label,
-        "Status": "OK" if available else ("Brak danych" if required else "Pominięte"),
-        "Opis": detail,
-    }
-
 
 def render_theme():
     st.markdown(
@@ -806,26 +740,21 @@ def render_theme():
         unsafe_allow_html=True,
     )
 
-
 def select_team(team_id, team_name):
     st.session_state.selected_team_id = int(team_id)
     st.session_state.selected_team_name = team_name
-
 
 def select_match(match_id, match_name):
     st.session_state.selected_match_id = int(match_id)
     st.session_state.selected_match_name = match_name
 
-
 def close_match_view():
     st.session_state.selected_match_id = None
     st.session_state.selected_match_name = None
 
-
 def close_team_view():
     st.session_state.selected_team_id = None
     st.session_state.selected_team_name = None
-
 
 def display_minute(event):
     minute = event.get("minute")
@@ -836,7 +765,6 @@ def display_minute(event):
         return f"{minute}+{injury_time}'"
     return f"{minute}'"
 
-
 def event_person_name(value):
     if isinstance(value, dict):
         return value.get("name") or value.get("firstName") or value.get("lastName") or "-"
@@ -844,14 +772,12 @@ def event_person_name(value):
         return str(value)
     return "-"
 
-
 def event_team_name(value):
     if isinstance(value, dict):
         return team_display_name(value)
     if value:
         return str(value)
     return "-"
-
 
 def score_text(match):
     score = match.get("score", {}).get("fullTime", {})
@@ -861,12 +787,10 @@ def score_text(match):
         return "vs"
     return f"{home_score}:{away_score}"
 
-
 def match_title(match):
     home = team_display_name(match.get("homeTeam", {}))
     away = team_display_name(match.get("awayTeam", {}))
     return f"{home} - {away}"
-
 
 def goals_dataframe(match):
     rows = []
@@ -883,7 +807,6 @@ def goals_dataframe(match):
         )
     return pd.DataFrame(rows)
 
-
 def bookings_dataframe(match):
     rows = []
     for booking in match.get("bookings", []) or []:
@@ -897,7 +820,6 @@ def bookings_dataframe(match):
         )
     return pd.DataFrame(rows)
 
-
 def substitutions_dataframe(match):
     rows = []
     for substitution in match.get("substitutions", []) or []:
@@ -910,7 +832,6 @@ def substitutions_dataframe(match):
             }
         )
     return pd.DataFrame(rows)
-
 
 def flatten_statistics(stats):
     if not stats:
@@ -928,7 +849,6 @@ def flatten_statistics(stats):
                 flat[name] = value
         return flat
     return {}
-
 
 def match_statistics_dataframe(match):
     home = match.get("homeTeam", {})
@@ -953,7 +873,6 @@ def match_statistics_dataframe(match):
         )
     return pd.DataFrame(rows)
 
-
 def match_lineups_dataframe(match, side):
     team = match.get(side, {})
     rows = []
@@ -968,7 +887,6 @@ def match_lineups_dataframe(match, side):
                 }
             )
     return pd.DataFrame(rows)
-
 
 def render_event_timeline(match):
     goals = []
@@ -995,7 +913,6 @@ def render_event_timeline(match):
         return
     for item in events:
         st.write(item["Opis"])
-
 
 def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable, clubelo_df=None):
     try:
@@ -1029,27 +946,26 @@ def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable
             st.rerun()
         st.caption(date_text or match.get("status", ""))
 
-    if match.get("status") != "FINISHED":
-        prediction = predict_match(
-            team_model_name(home),
-            team_model_name(away),
-            ratings,
-            home_adv,
-            avg_goals,
-            unavailable.get(str(home.get("id")), []),
-            unavailable.get(str(away.get("id")), []),
-            clubelo_df,
-        )
-        if prediction:
-            cols = st.columns(5)
-            cols[0].metric("Typowany wynik", prediction["score"])
-            cols[1].metric("xG gospodarzy", f"{prediction['home_xg']:.2f}")
-            cols[2].metric("xG gości", f"{prediction['away_xg']:.2f}")
-            cols[3].metric("Szansa 1-X-2", f"{prediction['home_win']:.0%} / {prediction['draw']:.0%} / {prediction['away_win']:.0%}")
-            if prediction.get("elo_diff") is None:
-                cols[4].metric("Pewność", f"{prediction['confidence']:.0%}")
-            else:
-                cols[4].metric("Elo diff", f"{prediction['elo_diff']:+.0f}")
+    prediction = predict_match(
+        team_model_name(home),
+        team_model_name(away),
+        ratings,
+        home_adv,
+        avg_goals,
+        unavailable.get(str(home.get("id")), []),
+        unavailable.get(str(away.get("id")), []),
+        clubelo_df,
+    )
+    if prediction:
+        cols = st.columns(5)
+        cols[0].metric("Typowany wynik", prediction["score"])
+        cols[1].metric("xG gospodarzy", f"{prediction['home_xg']:.2f}")
+        cols[2].metric("xG gości", f"{prediction['away_xg']:.2f}")
+        cols[3].metric("Szansa 1-X-2", f"{prediction['home_win']:.0%} / {prediction['draw']:.0%} / {prediction['away_win']:.0%}")
+        if prediction.get("elo_diff") is None:
+            cols[4].metric("Pewność", f"{prediction['confidence']:.0%}")
+        else:
+            cols[4].metric("Elo diff", f"{prediction['elo_diff']:+.0f}")
 
     tabs = st.tabs(["Przebieg", "Gole i kartki", "Statystyki", "Składy"])
     with tabs[0]:
@@ -1081,7 +997,7 @@ def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable
     with tabs[2]:
         stats_df = match_statistics_dataframe(match)
         if stats_df.empty:
-            st.info("Football-Data często nie udostępnia pełnych statystyk meczowych w darmowym planie. Jeśli endpoint je zwróci, pojawią się tutaj automatycznie.")
+            st.info("Football-Data często nie udostępnia pełnych statystyk meczowych w darmowym planie.")
         else:
             st.dataframe(stats_df, use_container_width=True, hide_index=True)
 
@@ -1102,18 +1018,28 @@ def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable
             else:
                 st.dataframe(lineup, use_container_width=True, hide_index=True)
 
-
 def render_match(match, ratings, home_adv, avg_goals, unavailable, clubelo_df=None):
     home = match.get("homeTeam", {})
     away = match.get("awayTeam", {})
     home_name = team_display_name(home)
     away_name = team_display_name(away)
     home_model = team_model_name(home)
-    away_model = team_model_name(away)
+    away_model = team_model_name(home)
     score = match.get("score", {}).get("fullTime", {})
     dt = match.get("utcDate", "")[:16].replace("T", " ")
 
-    cols = st.columns([1.4, 0.32, 1.4, 0.75, 1.1])
+    prediction = predict_match(
+        team_model_name(home),
+        team_model_name(away),
+        ratings,
+        home_adv,
+        avg_goals,
+        unavailable.get(str(home.get("id")), []),
+        unavailable.get(str(away.get("id")), []),
+        clubelo_df,
+    )
+
+    cols = st.columns([1.3, 0.4, 1.3, 0.75, 1.3])
     with cols[0]:
         if st.button(home_name, key=f"home-{match.get('id')}", use_container_width=True):
             select_team(home.get("id"), home_name)
@@ -1133,26 +1059,15 @@ def render_match(match, ratings, home_adv, avg_goals, unavailable, clubelo_df=No
             st.rerun()
     with cols[4]:
         if match.get("status") == "FINISHED":
-            st.caption(dt)
-        else:
-            prediction = predict_match(
-                home_model,
-                away_model,
-                ratings,
-                home_adv,
-                avg_goals,
-                unavailable.get(str(home.get("id")), []),
-                unavailable.get(str(away.get("id")), []),
-                clubelo_df,
-            )
             if prediction:
-                st.caption(
-                    f"{prediction['score']} | "
-                    f"1 {prediction['home_win']:.0%} / X {prediction['draw']:.0%} / 2 {prediction['away_win']:.0%}"
-                )
+                st.caption(f"Wynik: {score.get('home', '-')}:{score.get('away', '-')} (Typ: {prediction['score']})")
             else:
                 st.caption(dt)
-
+        else:
+            if prediction:
+                st.markdown(f"🎯 **{prediction['score']}** `({prediction['home_win']:.0%}/{prediction['draw']:.0%}/{prediction['away_win']:.0%})`")
+            else:
+                st.caption(dt)
 
 def render_standings(standings_df):
     header = st.columns([0.4, 2.0, 0.45, 0.45, 0.45, 0.45, 0.8, 0.55, 0.55])
@@ -1175,7 +1090,6 @@ def render_standings(standings_df):
         cols[7].write(row["+/-"])
         cols[8].write(row["Pkt"])
 
-
 def team_understat_filter(df, team_name):
     if df.empty:
         return df
@@ -1189,7 +1103,6 @@ def team_understat_filter(df, team_name):
     if best_name and best_score >= 0.45:
         return df[df["Drużyna"] == best_name].copy()
     return df[df["Drużyna"].map(lambda value: target in normalize_name(value) or normalize_name(value) in target)].copy()
-
 
 def render_team_page(
     team_id,
@@ -1353,7 +1266,6 @@ def render_team_page(
                 "ClubElo stabilizuje ocenę siły drużyny, a niedostępni zawodnicy obniżają oczekiwane gole."
             )
 
-
 def init_state():
     st.session_state.setdefault("selected_team_id", None)
     st.session_state.setdefault("selected_team_name", None)
@@ -1361,12 +1273,11 @@ def init_state():
     st.session_state.setdefault("selected_match_name", None)
     st.session_state.setdefault("unavailable", {})
 
-
 def main():
     init_state()
     render_theme()
     st.title("Football Predictor")
-    st.caption("Top 5 lig, tabela, terminarz, składy, statystyki i model predykcyjny aktualizowany bieżącym sezonem.")
+    st.caption("Top 5 lig, tabela, terminarz, składy i model predykcyjny.")
 
     with st.sidebar:
         st.header("Ustawienia")
@@ -1376,7 +1287,6 @@ def main():
         league_code = league_label_to_code[selected_label]
         current_season = season_start_year()
         st.caption(f"Sezon bazowy: {current_season}/{str(current_season + 1)[-2:]}")
-        show_league_stats = st.checkbox("Pokaż statystyki ligi i model", value=False)
         use_fpl_availability = st.checkbox("Uwzględniaj automatyczne braki FPL", value=True)
         use_clubelo = st.checkbox("Uwzględniaj ClubElo w predykcji", value=True)
         st.divider()
@@ -1429,8 +1339,7 @@ def main():
                         st.write(f"- {item}")
         st.divider()
         st.markdown("**Źródła danych**")
-        st.caption("Football-Data: mecze, tabela, składy i strzelcy. Understat: xG, xA i kartki zawodników. football-data.co.uk: historia do modelu.")
-        st.caption("FPL: automatyczne braki i forma zawodników Premier League. ClubElo: niezależny rating siły drużyn.")
+        st.caption("Football-Data, Understat, FPL oraz ClubElo zasilają model.")
 
     all_unavailable = merge_unavailable(st.session_state.unavailable, auto_unavailable, use_fpl_availability)
 
@@ -1483,75 +1392,6 @@ def main():
             fpl_df,
             active_clubelo,
         )
-
-    if show_league_stats:
-        st.divider()
-        st.subheader("Statystyki ligi i model")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("**Najlepsi strzelcy/asystenci**")
-            if scorers_df.empty:
-                st.info("Brak danych strzelców.")
-            else:
-                st.dataframe(
-                    scorers_df[["Zawodnik", "Drużyna", "Gole", "Asysty", "Karne"]].sort_values(
-                        ["Gole", "Asysty"], ascending=False
-                    ),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-        with col2:
-            st.markdown("**Najmocniejsze drużyny wg modelu**")
-            model_rows = []
-            for name, rating in ratings.items():
-                clubelo = clubelo_rating_for_team(name, active_clubelo)
-                model_rows.append(
-                    {
-                        "Drużyna": name,
-                        "Atak": rating["attack"],
-                        "Obrona": rating["defense"],
-                        "Trend": rating["trend"],
-                        "ClubElo": clubelo["elo"] if clubelo else np.nan,
-                        "Wynik modelu": rating["attack"] / max(rating["defense"], 0.1) + rating["trend"] * 0.08,
-                    }
-                )
-            if model_rows:
-                st.dataframe(
-                    pd.DataFrame(model_rows).sort_values("Wynik modelu", ascending=False).head(20),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-            else:
-                st.info("Brak historii do trenowania modelu.")
-        st.markdown("**Status źródeł danych**")
-        status_rows = [
-            source_status(
-                "Football-Data API",
-                bool(matches.get("matches")) and not standings_df.empty,
-                "Tabela, terminarz, wyniki, składy, strzelcy",
-                required=True,
-            ),
-            source_status("football-data.co.uk", not history.empty, "Historia wyników i statystyki do treningu modelu"),
-            source_status(
-                "Understat",
-                bool(understat_df is not None and not understat_df.empty),
-                f"xG, xA, strzały i kartki zawodników"
-                + (f" | użyty sezon: {understat_season}" if understat_season else " | opcjonalne źródło pominięte"),
-            ),
-            source_status("FPL API", not fpl_df.empty if league_code == "PL" else False, "Dostępność i forma zawodników Premier League"),
-            source_status(
-                "ClubElo",
-                not active_clubelo.empty,
-                "Niezależny rating siły drużyn"
-                + (
-                    f" | snapshot: {active_clubelo['SnapshotDate'].iloc[0]}"
-                    if not active_clubelo.empty and "SnapshotDate" in active_clubelo.columns
-                    else " | opcjonalne źródło pominięte"
-                ),
-            ),
-        ]
-        st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
-
 
 if __name__ == "__main__":
     main()
