@@ -316,41 +316,6 @@ def load_clubelo_snapshot(country_code):
     return pd.DataFrame()
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def load_understat(understat_code, season):
-    league_codes = [understat_code]
-    if understat_code == "La_Liga":
-        league_codes.append("La_liga")
-    elif understat_code == "La_liga":
-        league_codes.append("La_Liga")
-
-    seasons = list(dict.fromkeys([season, season - 1, season - 2, season - 3]))
-
-    for league_code in league_codes:
-        for candidate_season in seasons:
-            url = f"https://understat.com/league/{league_code}/{candidate_season}"
-            try:
-                response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=25)
-            except Exception:
-                continue
-            if response.status_code >= 400:
-                continue
-            page_text = response.text
-
-            def extract_var(name, default):
-                pattern = rf"var\s+{name}\s*=\s*JSON\.parse\('([^']*)'\)"
-                match = re.search(pattern, page_text)
-                if not match:
-                    return default
-                decoded = codecs.decode(match.group(1), "unicode_escape")
-                return json.loads(decoded)
-
-            teams = extract_var("teamsData", {})
-            players = extract_var("playersData", [])
-            if teams or players:
-                return teams, players, candidate_season
-    return {}, [], None
-
-@st.cache_data(ttl=86400, show_spinner=False)
 def load_history_csv(csv_code):
     frames = []
     for season in football_data_season_codes(back=5, forward=0):
@@ -480,39 +445,77 @@ def clubelo_rating_for_team(team_name, clubelo_df):
         "date": row.iloc[0].get("SnapshotDate", ""),
     }
 
+def match_by_normalized_name(target_name, candidates):
+    if not target_name or not candidates:
+        return None, 0.0
+    target = normalize_name(target_name)
+    scored = [
+        (candidate, SequenceMatcher(None, target, normalize_name(candidate)).ratio())
+        for candidate in candidates
+        if candidate
+    ]
+    return max(scored, key=lambda item: item[1], default=(None, 0.0))
+
+def get_team_recent_form(team_id, token, league_code):
+    try:
+        matches_data = get_team_matches(team_id, token, league_code)
+        finished = [m for m in matches_data.get("matches", []) if m.get("status") == "FINISHED"]
+        recent = finished[-5:] # Ostatnie 5 meczów
+        form_symbols = []
+        for m in recent:
+            home = m.get("homeTeam", {})
+            score = m.get("score", {}).get("fullTime", {})
+            is_home = home.get("id") == team_id
+            gf = score.get("home", 0) if is_home else score.get("away", 0)
+            ga = score.get("away", 0) if is_home else score.get("home", 0)
+            if gf > ga:
+                form_symbols.append("W")
+            elif gf == ga:
+                form_symbols.append("R")
+            else:
+                form_symbols.append("P")
+        return " ".join(form_symbols) if form_symbols else "Brak danych"
+    except Exception:
+        return "Brak danych"
+
 def predict_match(
-    home_name,
-    away_name,
+    home_team_obj,
+    away_team_obj,
     ratings,
     home_adv,
     avg_goals,
+    token,
+    league_code,
     unavailable_home=None,
     unavailable_away=None,
     clubelo_df=None,
 ):
-    unavailable_home = unavailable_home or []
-    unavailable_away = unavailable_away or []
+    home_name_model = team_model_name(home_team_obj)
+    away_name_model = team_model_name(away_team_obj)
     
-    home_rating_name = find_rating_name(home_name, ratings)
-    if not home_rating_name:
-        ratings[home_name] = {"attack": 1.0, "defense": 1.0, "trend": 0.0, "matches": 0}
-        home_rating_name = home_name
+    home_name_disp = team_display_name(home_team_obj)
+    away_name_disp = team_display_name(away_team_obj)
 
-    away_rating_name = find_rating_name(away_name, ratings)
+    home_rating_name = find_rating_name(home_name_model, ratings)
+    if not home_rating_name:
+        ratings[home_name_model] = {"attack": 1.0, "defense": 1.0, "trend": 0.0, "matches": 0}
+        home_rating_name = home_name_model
+
+    away_rating_name = find_rating_name(away_name_model, ratings)
     if not away_rating_name:
-        ratings[away_name] = {"attack": 1.0, "defense": 1.0, "trend": 0.0, "matches": 0}
-        away_rating_name = away_name
+        ratings[away_name_model] = {"attack": 1.0, "defense": 1.0, "trend": 0.0, "matches": 0}
+        away_rating_name = away_name_model
 
     home = ratings[home_rating_name]
     away = ratings[away_rating_name]
     
-    home_xg = home["attack"] * away["defense"] * home_adv * avg_goals
-    away_xg = away["attack"] * home["defense"] * (1 / home_adv) * avg_goals
+    home_xg = home.get("attack", 1.0) * away.get("defense", 1.0) * home_adv * avg_goals
+    away_xg = away.get("attack", 1.0) * home.get("defense", 1.0) * (1 / home_adv) * avg_goals
     home_xg = max(0.15, home_xg + home.get("trend", 0.0) * 0.08)
     away_xg = max(0.15, away_xg + away.get("trend", 0.0) * 0.08)
 
-    home_elo = clubelo_rating_for_team(home_name, clubelo_df)
-    away_elo = clubelo_rating_for_team(away_name, clubelo_df)
+    home_elo = clubelo_rating_for_team(home_name_model, clubelo_df)
+    away_elo = clubelo_rating_for_team(away_name_model, clubelo_df)
     elo_diff = None
     if home_elo and away_elo:
         elo_diff = (home_elo["elo"] - away_elo["elo"]) + 65
@@ -521,10 +524,16 @@ def predict_match(
         home_xg *= home_factor
         away_xg *= away_factor
 
+    unavailable_home = unavailable_home or []
+    unavailable_away = unavailable_away or []
     home_xg *= unavailable_penalty(unavailable_home)
     away_xg *= unavailable_penalty(unavailable_away)
+    
     home_win, draw, away_win, likely = probability_matrix(home_xg, away_xg)
     
+    home_form = get_team_recent_form(home_team_obj.get("id"), token, league_code) if home_team_obj.get("id") else "-"
+    away_form = get_team_recent_form(away_team_obj.get("id"), token, league_code) if away_team_obj.get("id") else "-"
+
     return {
         "home_xg": home_xg,
         "away_xg": away_xg,
@@ -532,14 +541,12 @@ def predict_match(
         "draw": draw,
         "away_win": away_win,
         "score": f"{likely[0]}:{likely[1]}",
-        "confidence": max(home_win, draw, away_win),
-        "home_rating_name": home_rating_name,
-        "away_rating_name": away_rating_name,
         "home_data": home,
         "away_data": away,
         "home_elo": home_elo,
         "away_elo": away_elo,
-        "elo_diff": elo_diff,
+        "home_form": home_form,
+        "away_form": away_form,
     }
 
 def split_matches_by_round(matches):
@@ -656,17 +663,6 @@ def fpl_players_dataframe(bootstrap):
         )
     return pd.DataFrame(rows)
 
-def match_by_normalized_name(target_name, candidates):
-    if not target_name or not candidates:
-        return None, 0.0
-    target = normalize_name(target_name)
-    scored = [
-        (candidate, SequenceMatcher(None, target, normalize_name(candidate)).ratio())
-        for candidate in candidates
-        if candidate
-    ]
-    return max(scored, key=lambda item: item[1], default=(None, 0.0))
-
 def fpl_team_filter(fpl_df, team_name):
     if fpl_df.empty or "Drużyna" not in fpl_df.columns:
         return pd.DataFrame()
@@ -779,7 +775,7 @@ def match_title(match):
     away = team_display_name(match.get("awayTeam", {}))
     return f"{home} - {away}"
 
-def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable, clubelo_df=None):
+def render_match_page(match_id, token, league_code, ratings, home_adv, avg_goals, unavailable, clubelo_df=None):
     try:
         match = get_match_detail(match_id, token)
     except Exception as exc:
@@ -814,11 +810,13 @@ def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable
     st.markdown("### 🎯 Zaawansowane Predykcje Meczowe")
     
     prediction = predict_match(
-        team_model_name(home),
-        team_model_name(away),
+        home,
+        away,
         ratings,
         home_adv,
         avg_goals,
+        token,
+        league_code,
         unavailable.get(str(home.get("id")), []),
         unavailable.get(str(away.get("id")), []),
         clubelo_df,
@@ -851,23 +849,23 @@ def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable
 
         res_cols[1].markdown(f"**Siła zespołu: {home_name}**")
         h_data = prediction["home_data"]
-        res_cols[1].write(f"- Atak: `{h_data['attack']:.3f}`")
-        res_cols[1].write(f"- Obrona: `{h_data['defense']:.3f}`")
-        res_cols[1].write(f"- Trend formy: `{h_data['trend']:+.3f}`")
+        res_cols[1].write(f"- Atak: `{h_data.get('attack', 1.0):.3f}`")
+        res_cols[1].write(f"- Obrona: `{h_data.get('defense', 1.0):.3f}`")
+        res_cols[1].write(f"- Ostatnia forma (5 ost. meczów): `{prediction['home_form']}`")
         if prediction["home_elo"]:
             res_cols[1].write(f"- ClubElo: `{prediction['home_elo']['elo']:.0f}` (Poz: {prediction['home_elo']['rank']})")
 
         res_cols[2].markdown(f"**Siła zespołu: {away_name}**")
         a_data = prediction["away_data"]
-        res_cols[2].write(f"- Atak: `{a_data['attack']:.3f}`")
-        res_cols[2].write(f"- Obrona: `{a_data['defense']:.3f}`")
-        res_cols[2].write(f"- Trend formy: `{a_data['trend']:+.3f}`")
+        res_cols[2].write(f"- Atak: `{a_data.get('attack', 1.0):.3f}`")
+        res_cols[2].write(f"- Obrona: `{a_data.get('defense', 1.0):.3f}`")
+        res_cols[2].write(f"- Ostatnia forma (5 ost. meczów): `{prediction['away_form']}`")
         if prediction["away_elo"]:
             res_cols[2].write(f"- ClubElo: `{prediction['away_elo']['elo']:.0f}` (Poz: {prediction['away_elo']['rank']})")
     else:
         st.info("Brak wystarczających danych do predykcji.")
 
-def render_match(match, ratings, home_adv, avg_goals, unavailable, clubelo_df=None):
+def render_match(match, ratings, home_adv, avg_goals, token, league_code, unavailable, clubelo_df=None):
     home = match.get("homeTeam", {})
     away = match.get("awayTeam", {})
     home_name = team_display_name(home)
@@ -876,11 +874,13 @@ def render_match(match, ratings, home_adv, avg_goals, unavailable, clubelo_df=No
     dt = match.get("utcDate", "")[:16].replace("T", " ")
 
     prediction = predict_match(
-        team_model_name(home),
-        team_model_name(away),
+        home,
+        away,
         ratings,
         home_adv,
         avg_goals,
+        token,
+        league_code,
         unavailable.get(str(home.get("id")), []),
         unavailable.get(str(away.get("id")), []),
         clubelo_df,
@@ -1092,13 +1092,12 @@ def render_team_page(
             st.info("Model nie znalazł odpowiednika.")
         else:
             rating = ratings[model_name]
-            cols = st.columns(6)
+            cols = st.columns(5)
             cols[0].metric("Nazwa w modelu", model_name)
-            cols[1].metric("Siła ataku", f"{rating['attack']:.3f}")
-            cols[2].metric("Siła obrony", f"{rating['defense']:.3f}")
-            cols[3].metric("Trend", f"{rating['trend']:+.3f}")
-            cols[4].metric("ClubElo", f"{clubelo['elo']:.0f}" if clubelo else "-")
-            cols[5].metric("Mecze", int(rating["matches"]))
+            cols[1].metric("Siła ataku", f"{rating.get('attack', 1.0):.3f}")
+            cols[2].metric("Siła obrony", f"{rating.get('defense', 1.0):.3f}")
+            cols[3].metric("ClubElo", f"{clubelo['elo']:.0f}" if clubelo else "-")
+            cols[4].metric("Mecze", int(rating.get("matches", 0)))
 
 def init_state():
     st.session_state.setdefault("selected_team_id", None)
@@ -1175,7 +1174,7 @@ def main():
         st.markdown(f"**Ostatnia kolejka: {last_md or 'brak'}**")
         if last_matches:
             for match in last_matches:
-                render_match(match, ratings, home_adv, avg_goals, all_unavailable, active_clubelo)
+                render_match(match, ratings, home_adv, avg_goals, token.strip(), league_code, all_unavailable, active_clubelo)
         else:
             st.info("Brak zakończonej kolejki w danych API.")
 
@@ -1183,7 +1182,7 @@ def main():
         st.markdown(f"**Następna kolejka: {next_md or 'brak'}**")
         if next_matches:
             for match in next_matches:
-                render_match(match, ratings, home_adv, avg_goals, all_unavailable, active_clubelo)
+                render_match(match, ratings, home_adv, avg_goals, token.strip(), league_code, all_unavailable, active_clubelo)
         else:
             st.info("Brak nadchodzącej kolejki w danych API.")
 
@@ -1198,6 +1197,7 @@ def main():
         render_match_page(
             st.session_state.selected_match_id,
             token.strip(),
+            league_code,
             ratings,
             home_adv,
             avg_goals,
