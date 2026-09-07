@@ -71,33 +71,39 @@ FPL_POSITION = {
     4: "Napastnik",
 }
 
-# Rozszerzony słownik aliasów o warianty bez "FC" i krótsze formy
+# Aliasy pozostawione wyłącznie dla dopasowania zewnętrznego ClubElo
 TEAM_ALIASES = {
-    "Arsenal FC": "Arsenal", "Arsenal": "Arsenal",
-    "Aston Villa FC": "Aston Villa", "Aston Villa": "Aston Villa",
-    "AFC Bournemouth": "Bournemouth", "Bournemouth": "Bournemouth",
-    "Brentford FC": "Brentford", "Brentford": "Brentford",
-    "Brighton & Hove Albion FC": "Brighton", "Brighton": "Brighton", "Brighton & Hove Albion": "Brighton",
-    "Burnley FC": "Burnley", "Burnley": "Burnley",
-    "Chelsea FC": "Chelsea", "Chelsea": "Chelsea",
-    "Crystal Palace FC": "Crystal Palace", "Crystal Palace": "Crystal Palace",
-    "Everton FC": "Everton", "Everton": "Everton",
-    "Fulham FC": "Fulham", "Fulham": "Fulham",
-    "Leeds United FC": "Leeds", "Leeds United": "Leeds", "Leeds": "Leeds",
-    "Leicester City FC": "Leicester", "Leicester City": "Leicester", "Leicester": "Leicester",
-    "Liverpool FC": "Liverpool", "Liverpool": "Liverpool",
-    "Manchester City FC": "Man City", "Manchester City": "Man City",
-    "Manchester United FC": "Man United", "Manchester United": "Man United",
-    "Newcastle United FC": "Newcastle", "Newcastle United": "Newcastle", "Newcastle": "Newcastle",
-    "Nottingham Forest FC": "Nott'm Forest", "Nottingham Forest": "Nott'm Forest", "Nott'm Forest": "Nott'm Forest",
-    "Southampton FC": "Southampton", "Southampton": "Southampton",
-    "Sunderland AFC": "Sunderland", "Sunderland": "Sunderland",
-    "Tottenham Hotspur FC": "Tottenham", "Tottenham Hotspur": "Tottenham", "Tottenham": "Tottenham",
-    "West Ham United FC": "West Ham", "West Ham United": "West Ham", "West Ham": "West Ham",
-    "Wolverhampton Wanderers FC": "Wolves", "Wolverhampton Wanderers": "Wolves", "Wolves": "Wolves",
-    "Real Madrid CF": "Real Madrid", "FC Barcelona": "Barcelona", "Club Atlético de Madrid": "Ath Madrid",
-    "Atlético de Madrid": "Ath Madrid", "Athletic Club": "Ath Bilbao", "Real Betis Balompié": "Betis",
-    "Real Sociedad de Fútbol": "Sociedad", "Sevilla FC": "Sevilla", "Valencia CF": "Valencia",
+    "Arsenal FC": "Arsenal",
+    "Aston Villa FC": "Aston Villa",
+    "AFC Bournemouth": "Bournemouth",
+    "Brentford FC": "Brentford",
+    "Brighton & Hove Albion FC": "Brighton",
+    "Burnley FC": "Burnley",
+    "Chelsea FC": "Chelsea",
+    "Crystal Palace FC": "Crystal Palace",
+    "Everton FC": "Everton",
+    "Fulham FC": "Fulham",
+    "Leeds United FC": "Leeds",
+    "Leicester City FC": "Leicester",
+    "Liverpool FC": "Liverpool",
+    "Manchester City FC": "Man City",
+    "Manchester United FC": "Man United",
+    "Newcastle United FC": "Newcastle",
+    "Nottingham Forest FC": "Nott'm Forest",
+    "Southampton FC": "Southampton",
+    "Sunderland AFC": "Sunderland",
+    "Tottenham Hotspur FC": "Tottenham",
+    "West Ham United FC": "West Ham",
+    "Wolverhampton Wanderers FC": "Wolves",
+    "Real Madrid CF": "Real Madrid",
+    "FC Barcelona": "Barcelona",
+    "Club Atlético de Madrid": "Ath Madrid",
+    "Atlético de Madrid": "Ath Madrid",
+    "Athletic Club": "Ath Bilbao",
+    "Real Betis Balompié": "Betis",
+    "Real Sociedad de Fútbol": "Sociedad",
+    "Sevilla FC": "Sevilla",
+    "Valencia CF": "Valencia",
 }
 
 def normalize_name(value):
@@ -137,13 +143,6 @@ def team_model_name(team):
 def season_start_year(today=None):
     today = today or date.today()
     return today.year if today.month >= 7 else today.year - 1
-
-def football_data_season_codes(back=5, forward=0):
-    current = season_start_year()
-    codes = []
-    for start in range(current - back, current + forward + 1):
-        codes.append(f"{str(start)[-2:]}{str(start + 1)[-2:]}")
-    return codes
 
 def safe_float(value, default=0.0):
     try:
@@ -246,119 +245,65 @@ def load_clubelo_snapshot(country_code):
             return frame.reset_index(drop=True)
     return pd.DataFrame()
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def load_understat(understat_code, season):
-    league_codes = [understat_code]
-    if understat_code == "La_Liga":
-        league_codes.append("La_liga")
-    elif understat_code == "La_liga":
-        league_codes.append("La_Liga")
 
-    seasons = list(dict.fromkeys([season, season - 1, season - 2, season - 3]))
-
-    for league_code in league_codes:
-        for candidate_season in seasons:
-            url = f"https://understat.com/league/{league_code}/{candidate_season}"
-            try:
-                response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=25)
-            except Exception:
-                continue
-            if response.status_code >= 400:
-                continue
-            page_text = response.text
-
-            def extract_var(name, default):
-                pattern = rf"var\s+{name}\s*=\s*JSON\.parse\('([^']*)'\)"
-                match = re.search(pattern, page_text)
-                if not match:
-                    return default
-                decoded = codecs.decode(match.group(1), "unicode_escape")
-                return json.loads(decoded)
-
-            teams = extract_var("teamsData", {})
-            players = extract_var("playersData", [])
-            if teams or players:
-                return teams, players, candidate_season
-    return {}, [], None
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def load_history_csv(csv_code):
-    frames = []
-    # Pobieranie używa "Mozilla/5.0", żeby ominąć blokady 403 z football-data.co.uk
-    for season in football_data_season_codes(back=6, forward=1):
-        url = f"https://www.football-data.co.uk/mmz4281/{season}/{csv_code}.csv"
-        try:
-            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-            if resp.status_code >= 400:
-                continue
-            frame = pd.read_csv(StringIO(resp.text), on_bad_lines="skip")
-        except Exception:
-            continue
-        required = {"Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG"}
-        if required.issubset(frame.columns):
-            frame = frame[list(required)].dropna()
-            frame["SeasonCode"] = season
-            frames.append(frame)
-    if not frames:
-        return pd.DataFrame(columns=["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "SeasonCode"])
-    data = pd.concat(frames, ignore_index=True)
-    data["ParsedDate"] = pd.to_datetime(data["Date"], dayfirst=True, errors="coerce")
-    return data.dropna(subset=["ParsedDate"]).sort_values("ParsedDate").reset_index(drop=True)
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def train_prediction_model(csv_code):
-    history = load_history_csv(csv_code)
-    if history.empty:
-        return {}, 1.18, 1.35, pd.DataFrame()
-
+# NOWY SILNIK SZACOWANIA SIŁY DRUŻYN (Na podstawie aktualnej tabeli)
+def calculate_team_strengths(standings_df):
     ratings = {}
-    home_adv = 1.18
-    avg_goals = max(1.05, float(history[["FTHG", "FTAG"]].mean().mean()))
-    current_code = football_data_season_codes(back=1)[0]
+    default_home_adv = 1.15
+    default_avg_goals = 1.35
+    
+    if standings_df.empty:
+        return ratings, default_home_adv, default_avg_goals
 
-    def init_team(name):
-        if name not in ratings:
-            ratings[name] = {
-                "attack": 1.0,
-                "defense": 1.0,
-                "trend": 0.0,
-                "matches": 0,
-                "gf": 0,
-                "ga": 0,
-            }
+    total_games = standings_df["M"].sum()
+    if total_games == 0:
+        return ratings, default_home_adv, default_avg_goals
 
-    for _, row in history.iterrows():
-        home = row["HomeTeam"]
-        away = row["AwayTeam"]
-        init_team(home)
-        init_team(away)
+    # Wyodrębnienie goli strzelonych i straconych
+    try:
+        standings_df[["GF", "GA"]] = standings_df["Bramki"].str.split(":", expand=True).astype(int)
+    except Exception:
+        return ratings, default_home_adv, default_avg_goals
+        
+    total_goals = standings_df["GF"].sum()
+    avg_goals_per_game = total_goals / total_games if total_games > 0 else default_avg_goals
+    
+    # Parametr wygładzający (dodajemy 5 spotkań ze średnimi wynikami), żeby uniknąć 
+    # skrajności (np. 4:0 w 1 kolejce dające nieskończoną siłę)
+    virtual_games = 5 
+    
+    for _, row in standings_df.iterrows():
+        team_id = row["TeamID"]
+        games = row["M"]
+        gf = row["GF"]
+        ga = row["GA"]
+        
+        team_attack_avg = (gf + virtual_games * avg_goals_per_game) / (games + virtual_games)
+        team_defense_avg = (ga + virtual_games * avg_goals_per_game) / (games + virtual_games)
+        
+        ratings[team_id] = {
+            "attack": team_attack_avg / avg_goals_per_game if avg_goals_per_game > 0 else 1.0,
+            "defense": team_defense_avg / avg_goals_per_game if avg_goals_per_game > 0 else 1.0,
+            "matches": games,
+            "gf": gf,
+            "ga": ga,
+            "form": row["Forma"]
+        }
+        
+    return ratings, default_home_adv, avg_goals_per_game
 
-        season_weight = 1.0 if row["SeasonCode"] == current_code else 0.55
-        alpha = 0.09 * season_weight
 
-        home_xg = ratings[home]["attack"] * ratings[away]["defense"] * home_adv * avg_goals
-        away_xg = ratings[away]["attack"] * ratings[home]["defense"] * (1 / home_adv) * avg_goals
-        home_goals = safe_float(row["FTHG"])
-        away_goals = safe_float(row["FTAG"])
-        home_error = home_goals - home_xg
-        away_error = away_goals - away_xg
+def calculate_form_modifier(form_string):
+    if not form_string:
+        return 0.0
+    modifier = 0.0
+    for char in str(form_string).upper():
+        if char == 'W':
+            modifier += 0.04  # +4% za wygraną
+        elif char in ('P', 'L'):
+            modifier -= 0.04  # -4% za przegraną
+    return np.clip(modifier, -0.20, 0.20) # Max 20% wpływu formy
 
-        ratings[home]["attack"] = max(0.25, ratings[home]["attack"] + alpha * home_error * 0.08)
-        ratings[away]["defense"] = max(0.35, ratings[away]["defense"] + alpha * home_error * 0.055)
-        ratings[away]["attack"] = max(0.25, ratings[away]["attack"] + alpha * away_error * 0.08)
-        ratings[home]["defense"] = max(0.35, ratings[home]["defense"] + alpha * away_error * 0.055)
-
-        ratings[home]["trend"] = ratings[home]["trend"] * 0.82 + home_error * 0.18
-        ratings[away]["trend"] = ratings[away]["trend"] * 0.82 + away_error * 0.18
-
-        ratings[home]["matches"] += 1
-        ratings[away]["matches"] += 1
-        ratings[home]["gf"] += int(home_goals)
-        ratings[home]["ga"] += int(away_goals)
-        ratings[away]["gf"] += int(away_goals)
-        ratings[away]["ga"] += int(home_goals)
-
-    return ratings, home_adv, avg_goals, history
 
 def find_rating_name(team_name, ratings):
     if not ratings:
@@ -426,27 +371,6 @@ def match_by_normalized_name(target_name, candidates):
     ]
     return max(scored, key=lambda item: item[1], default=(None, 0.0))
 
-def get_team_recent_form(team_id, token, league_code):
-    try:
-        matches_data = get_team_matches(team_id, token, league_code)
-        finished = [m for m in matches_data.get("matches", []) if m.get("status") == "FINISHED"]
-        recent = finished[-5:]
-        form_symbols = []
-        for m in recent:
-            home = m.get("homeTeam", {})
-            score = m.get("score", {}).get("fullTime", {})
-            is_home = home.get("id") == team_id
-            gf = score.get("home", 0) if is_home else score.get("away", 0)
-            ga = score.get("away", 0) if is_home else score.get("home", 0)
-            if gf > ga:
-                form_symbols.append("W")
-            elif gf == ga:
-                form_symbols.append("R")
-            else:
-                form_symbols.append("P")
-        return " ".join(form_symbols) if form_symbols else "Brak danych"
-    except Exception:
-        return "Brak danych"
 
 def predict_match(
     home_team_obj,
@@ -454,35 +378,32 @@ def predict_match(
     ratings,
     home_adv,
     avg_goals,
-    token,
-    league_code,
     unavailable_home=None,
     unavailable_away=None,
     clubelo_df=None,
 ):
-    home_name_model = team_model_name(home_team_obj)
-    away_name_model = team_model_name(away_team_obj)
-
-    home_rating_name = find_rating_name(home_name_model, ratings)
-    if not home_rating_name:
-        ratings[home_name_model] = {"attack": 1.0, "defense": 1.0, "trend": 0.0, "matches": 0}
-        home_rating_name = home_name_model
-
-    away_rating_name = find_rating_name(away_name_model, ratings)
-    if not away_rating_name:
-        ratings[away_name_model] = {"attack": 1.0, "defense": 1.0, "trend": 0.0, "matches": 0}
-        away_rating_name = away_name_model
-
-    home = ratings[home_rating_name]
-    away = ratings[away_rating_name]
+    home_id = home_team_obj.get("id")
+    away_id = away_team_obj.get("id")
+    
+    # Bezpośrednie przypisanie z nowego modelu po unikalnym ID!
+    home = ratings.get(home_id, {"attack": 1.0, "defense": 1.0, "form": ""})
+    away = ratings.get(away_id, {"attack": 1.0, "defense": 1.0, "form": ""})
     
     home_xg = home.get("attack", 1.0) * away.get("defense", 1.0) * home_adv * avg_goals
     away_xg = away.get("attack", 1.0) * home.get("defense", 1.0) * (1 / home_adv) * avg_goals
-    home_xg = max(0.15, home_xg + home.get("trend", 0.0) * 0.08)
-    away_xg = max(0.15, away_xg + away.get("trend", 0.0) * 0.08)
 
+    # Modyfikatory z formy (ostatnie 5 meczów z tabeli)
+    home_form_mod = calculate_form_modifier(home.get("form", ""))
+    away_form_mod = calculate_form_modifier(away.get("form", ""))
+    
+    home_xg = max(0.15, home_xg * (1.0 + home_form_mod))
+    away_xg = max(0.15, away_xg * (1.0 + away_form_mod))
+
+    home_name_model = team_model_name(home_team_obj)
+    away_name_model = team_model_name(away_team_obj)
     home_elo = clubelo_rating_for_team(home_name_model, clubelo_df)
     away_elo = clubelo_rating_for_team(away_name_model, clubelo_df)
+    
     elo_diff = None
     if home_elo and away_elo:
         elo_diff = (home_elo["elo"] - away_elo["elo"]) + 65
@@ -498,9 +419,6 @@ def predict_match(
     
     home_win, draw, away_win, likely = probability_matrix(home_xg, away_xg)
     
-    home_form = get_team_recent_form(home_team_obj.get("id"), token, league_code) if home_team_obj.get("id") else "-"
-    away_form = get_team_recent_form(away_team_obj.get("id"), token, league_code) if away_team_obj.get("id") else "-"
-
     return {
         "home_xg": home_xg,
         "away_xg": away_xg,
@@ -512,8 +430,6 @@ def predict_match(
         "away_data": away,
         "home_elo": home_elo,
         "away_elo": away_elo,
-        "home_form": home_form,
-        "away_form": away_form,
     }
 
 def split_matches_by_round(matches):
@@ -738,8 +654,6 @@ def render_match_page(match_id, token, league_code, ratings, home_adv, avg_goals
         ratings,
         home_adv,
         avg_goals,
-        token,
-        league_code,
         unavailable.get(str(home.get("id")), []),
         unavailable.get(str(away.get("id")), []),
         clubelo_df,
@@ -762,7 +676,7 @@ def render_match_page(match_id, token, league_code, ratings, home_adv, avg_goals
             for a in range(6):
                 all_scores.append((f"{h}:{a}", score_matrix[h][a]))
         all_scores.sort(key=lambda x: x[1], reverse=True)
-        top_scores = all_scores[:5] # Zmiana z Top 3 na Top 5
+        top_scores = all_scores[:5]
 
         st.markdown("---")
         res_cols = st.columns(3)
@@ -770,19 +684,21 @@ def render_match_page(match_id, token, league_code, ratings, home_adv, avg_goals
         for idx, (sc, pr) in enumerate(top_scores):
             res_cols[0].write(f"{idx+1}. Wynik **{sc}** (szansa: `{pr:.1%}`)")
 
-        res_cols[1].markdown(f"**Siła zespołu: {home_name}**")
+        res_cols[1].markdown(f"**Statystyki zespołu: {home_name}**")
         h_data = prediction["home_data"]
-        res_cols[1].write(f"- Atak: `{h_data.get('attack', 1.0):.3f}`")
-        res_cols[1].write(f"- Obrona: `{h_data.get('defense', 1.0):.3f}`")
-        res_cols[1].write(f"- Ostatnia forma (5 ost. meczów): `{prediction['home_form']}`")
+        res_cols[1].write(f"- Siła Ataku: `{h_data.get('attack', 1.0):.3f}`")
+        res_cols[1].write(f"- Siła Obrony: `{h_data.get('defense', 1.0):.3f}` *(mniej = lepiej)*")
+        res_cols[1].write(f"- Z tabeli (Mecze / Gole): `{h_data.get('matches',0)} / {h_data.get('gf',0)}:{h_data.get('ga',0)}`")
+        res_cols[1].write(f"- Ostatnia forma z tabeli: `{h_data.get('form', '-')}`")
         if prediction["home_elo"]:
             res_cols[1].write(f"- ClubElo: `{prediction['home_elo']['elo']:.0f}` (Poz: {prediction['home_elo']['rank']})")
 
-        res_cols[2].markdown(f"**Siła zespołu: {away_name}**")
+        res_cols[2].markdown(f"**Statystyki zespołu: {away_name}**")
         a_data = prediction["away_data"]
-        res_cols[2].write(f"- Atak: `{a_data.get('attack', 1.0):.3f}`")
-        res_cols[2].write(f"- Obrona: `{a_data.get('defense', 1.0):.3f}`")
-        res_cols[2].write(f"- Ostatnia forma (5 ost. meczów): `{prediction['away_form']}`")
+        res_cols[2].write(f"- Siła Ataku: `{a_data.get('attack', 1.0):.3f}`")
+        res_cols[2].write(f"- Siła Obrony: `{a_data.get('defense', 1.0):.3f}` *(mniej = lepiej)*")
+        res_cols[2].write(f"- Z tabeli (Mecze / Gole): `{a_data.get('matches',0)} / {a_data.get('gf',0)}:{a_data.get('ga',0)}`")
+        res_cols[2].write(f"- Ostatnia forma z tabeli: `{a_data.get('form', '-')}`")
         if prediction["away_elo"]:
             res_cols[2].write(f"- ClubElo: `{prediction['away_elo']['elo']:.0f}` (Poz: {prediction['away_elo']['rank']})")
     else:
@@ -802,8 +718,6 @@ def render_match(match, ratings, home_adv, avg_goals, token, league_code, unavai
         ratings,
         home_adv,
         avg_goals,
-        token,
-        league_code,
         unavailable.get(str(home.get("id")), []),
         unavailable.get(str(away.get("id")), []),
         clubelo_df,
@@ -871,7 +785,7 @@ def main():
     init_state()
     render_theme()
     st.title("Football Predictor")
-    st.caption("Top 5 lig, tabela, terminarz i zaawansowany model predykcyjny.")
+    st.caption("Top 5 lig, tabela, terminarz i zaawansowany model predykcyjny (Silnik oparty na aktualnej tabeli).")
 
     with st.sidebar:
         st.header("Ustawienia")
@@ -879,8 +793,6 @@ def main():
         league_label_to_code = {f"{meta['label']} ({meta['country']})": code for code, meta in LEAGUES.items()}
         selected_label = st.selectbox("Liga", list(league_label_to_code.keys()))
         league_code = league_label_to_code[selected_label]
-        current_season = season_start_year()
-        st.caption(f"Sezon bazowy: {current_season}/{str(current_season + 1)[-2:]}")
         use_fpl_availability = st.checkbox("Uwzględniaj automatyczne braki FPL", value=True)
         use_clubelo = st.checkbox("Uwzględniaj ClubElo w predykcji", value=True)
         st.divider()
@@ -892,9 +804,8 @@ def main():
 
     league_meta = LEAGUES[league_code]
     try:
-        with st.spinner("Pobieram dane ligi..."):
+        with st.spinner("Pobieram dane z API..."):
             standings, matches, scorers = get_league_bundle(league_code, token.strip())
-            ratings, home_adv, avg_goals, history = train_prediction_model(league_meta["csv_code"])
             fpl_bootstrap = load_fpl_bootstrap() if league_code == "PL" else {}
             clubelo_df = load_clubelo_snapshot(league_meta["clubelo_country"]) if use_clubelo else pd.DataFrame()
     except Exception as exc:
@@ -902,6 +813,10 @@ def main():
         st.stop()
 
     standings_df = standings_dataframe(standings)
+    
+    # Generowanie siły drużyn bezpośrednio z wyciągniętej tabeli!
+    ratings, home_adv, avg_goals = calculate_team_strengths(standings_df)
+    
     fpl_df = fpl_players_dataframe(fpl_bootstrap) if league_code == "PL" else pd.DataFrame()
     auto_unavailable = build_auto_unavailable(standings_df, fpl_df) if league_code == "PL" else {}
     active_clubelo = clubelo_df if use_clubelo else pd.DataFrame()
