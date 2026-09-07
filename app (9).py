@@ -766,29 +766,6 @@ def close_team_view():
     st.session_state.selected_team_id = None
     st.session_state.selected_team_name = None
 
-def display_minute(event):
-    minute = event.get("minute")
-    injury_time = event.get("injuryTime")
-    if minute is None:
-        return "-"
-    if injury_time:
-        return f"{minute}+{injury_time}'"
-    return f"{minute}'"
-
-def event_person_name(value):
-    if isinstance(value, dict):
-        return value.get("name") or value.get("firstName") or value.get("lastName") or "-"
-    if value:
-        return str(value)
-    return "-"
-
-def event_team_name(value):
-    if isinstance(value, dict):
-        return team_display_name(value)
-    if value:
-        return str(value)
-    return "-"
-
 def score_text(match):
     score = match.get("score", {}).get("fullTime", {})
     home_score = score.get("home")
@@ -801,73 +778,6 @@ def match_title(match):
     home = team_display_name(match.get("homeTeam", {}))
     away = team_display_name(match.get("awayTeam", {}))
     return f"{home} - {away}"
-
-def goals_dataframe(match):
-    rows = []
-    for goal in match.get("goals", []) or []:
-        rows.append(
-            {
-                "Min": display_minute(goal),
-                "Drużyna": event_team_name(goal.get("team")),
-                "Strzelec": event_person_name(goal.get("scorer") or goal.get("player")),
-                "Asysta": event_person_name(goal.get("assist")),
-                "Typ": goal.get("type", ""),
-                "Wynik": goal.get("score", ""),
-            }
-        )
-    return pd.DataFrame(rows)
-
-def bookings_dataframe(match):
-    rows = []
-    for booking in match.get("bookings", []) or []:
-        rows.append(
-            {
-                "Min": display_minute(booking),
-                "Drużyna": event_team_name(booking.get("team")),
-                "Zawodnik": event_person_name(booking.get("player")),
-                "Kartka": booking.get("card", booking.get("type", "")),
-            }
-        )
-    return pd.DataFrame(rows)
-
-def substitutions_dataframe(match):
-    rows = []
-    for substitution in match.get("substitutions", []) or []:
-        rows.append(
-            {
-                "Min": display_minute(substitution),
-                "Drużyna": event_team_name(substitution.get("team")),
-                "Schodzi": event_person_name(substitution.get("playerOut") or substitution.get("out")),
-                "Wchodzi": event_person_name(substitution.get("playerIn") or substitution.get("in")),
-            }
-        )
-    return pd.DataFrame(rows)
-
-def render_event_timeline(match):
-    goals = []
-    for goal in match.get("goals", []) or []:
-        goals.append(
-            {
-                "minute": goal.get("minute") or 0,
-                "injury": goal.get("injuryTime") or 0,
-                "Opis": f"{display_minute(goal)} Gol: {event_person_name(goal.get('scorer') or goal.get('player'))} ({event_team_name(goal.get('team'))})",
-            }
-        )
-    cards = []
-    for booking in match.get("bookings", []) or []:
-        cards.append(
-            {
-                "minute": booking.get("minute") or 0,
-                "injury": booking.get("injuryTime") or 0,
-                "Opis": f"{display_minute(booking)} Kartka: {event_person_name(booking.get('player'))} ({event_team_name(booking.get('team'))})",
-            }
-        )
-    events = sorted(goals + cards, key=lambda item: (item["minute"], item["injury"]))
-    if not events:
-        st.info("API nie zwróciło osi wydarzeń dla tego meczu.")
-        return
-    for item in events:
-        st.write(item["Opis"])
 
 def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable, clubelo_df=None):
     try:
@@ -896,12 +806,13 @@ def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable
                 select_team(away.get("id"), away_name)
                 st.rerun()
     with top[3]:
-        if st.button("Zamknij mecz", use_container_width=True):
+        if st.button("Zamknij widok", use_container_width=True):
             close_match_view()
             st.rerun()
         st.caption(date_text or match.get("status", ""))
 
-    st.markdown("### 📊 Zaawansowane Predykcje i Siły Zespołów")
+    st.markdown("### 🎯 Zaawansowane Predykcje Meczowe")
+    
     prediction = predict_match(
         team_model_name(home),
         team_model_name(away),
@@ -912,85 +823,49 @@ def render_match_page(match_id, token, ratings, home_adv, avg_goals, unavailable
         unavailable.get(str(away.get("id")), []),
         clubelo_df,
     )
+    
     if prediction:
         cols = st.columns(4)
-        cols[0].metric("Typowany wynik", prediction["score"])
+        cols[0].metric("Główny Typ", prediction["score"])
         cols[1].metric("Szansa 1-X-2", f"{prediction['home_win']:.0%} / {prediction['draw']:.0%} / {prediction['away_win']:.0%}")
         cols[2].metric("xG Gospodarzy", f"{prediction['home_xg']:.2f}")
         cols[3].metric("xG Gości", f"{prediction['away_xg']:.2f}")
 
+        # Obliczanie top 3 najbardziej prawdopodobnych wyników
+        home_probs = [poisson.pmf(i, prediction['home_xg']) for i in range(6)]
+        away_probs = [poisson.pmf(i, prediction['away_xg']) for i in range(6)]
+        score_matrix = np.outer(home_probs, away_probs)
+        
+        all_scores = []
+        for h in range(6):
+            for a in range(6):
+                all_scores.append((f"{h}:{a}", score_matrix[h][a]))
+        all_scores.sort(key=lambda x: x[1], reverse=True)
+        top_scores = all_scores[:3]
+
         st.markdown("---")
-        p_cols = st.columns(2)
-        with p_cols[0]:
-            st.markdown(f"**{home_name} (Gospodarz)**")
-            h_data = prediction["home_data"]
-            st.write(f"- Siła ataku: `{h_data['attack']:.3f}`")
-            st.write(f"- Siła obrony: `{h_data['defense']:.3f}`")
-            st.write(f"- Trend formy: `{h_data['trend']:+.3f}`")
-            if prediction["home_elo"]:
-                st.write(f"- ClubElo: `{prediction['home_elo']['elo']:.0f}` (Ranking: {prediction['home_elo']['rank']})")
-        with p_cols[1]:
-            st.markdown(f"**{away_name} (Gość)**")
-            a_data = prediction["away_data"]
-            st.write(f"- Siła ataku: `{a_data['attack']:.3f}`")
-            st.write(f"- Siła obrony: `{a_data['defense']:.3f}`")
-            st.write(f"- Trend formy: `{a_data['trend']:+.3f}`")
-            if prediction["away_elo"]:
-                st.write(f"- ClubElo: `{prediction['away_elo']['elo']:.0f}` (Ranking: {prediction['away_elo']['rank']})")
+        res_cols = st.columns(3)
+        res_cols[0].markdown("**Top 3 Najbardziej Prawdopodobne Wyniki:**")
+        for idx, (sc, pr) in enumerate(top_scores):
+            res_cols[0].write(f"{idx+1}. Wynik **{sc}** (szansa: `{pr:.1%}`)")
 
-    tabs = st.tabs(["Przebieg", "Gole i kartki", "Składy"])
-    with tabs[0]:
-        render_event_timeline(match)
+        res_cols[1].markdown(f"**Siła zespołu: {home_name}**")
+        h_data = prediction["home_data"]
+        res_cols[1].write(f"- Atak: `{h_data['attack']:.3f}`")
+        res_cols[1].write(f"- Obrona: `{h_data['defense']:.3f}`")
+        res_cols[1].write(f"- Trend formy: `{h_data['trend']:+.3f}`")
+        if prediction["home_elo"]:
+            res_cols[1].write(f"- ClubElo: `{prediction['home_elo']['elo']:.0f}` (Poz: {prediction['home_elo']['rank']})")
 
-    with tabs[1]:
-        goals_df = goals_dataframe(match)
-        bookings_df = bookings_dataframe(match)
-        substitutions_df = substitutions_dataframe(match)
-        left, right = st.columns(2)
-        with left:
-            st.markdown("**Bramki**")
-            if goals_df.empty:
-                st.info("Brak danych o bramkach w odpowiedzi API.")
-            else:
-                st.dataframe(goals_df, use_container_width=True, hide_index=True)
-        with right:
-            st.markdown("**Kartki**")
-            if bookings_df.empty:
-                st.info("Brak danych o kartkach w odpowiedzi API.")
-            else:
-                st.dataframe(bookings_df, use_container_width=True, hide_index=True)
-
-    with tabs[2]:
-        left, right = st.columns(2)
-        with left:
-            st.markdown(f"**{home_name}**")
-            lineup = match_lineups_dataframe(match, "homeTeam")
-            if lineup.empty:
-                st.info("Brak składu meczowego.")
-            else:
-                st.dataframe(lineup, use_container_width=True, hide_index=True)
-        with right:
-            st.markdown(f"**{away_name}**")
-            lineup = match_lineups_dataframe(match, "awayTeam")
-            if lineup.empty:
-                st.info("Brak składu meczowego.")
-            else:
-                st.dataframe(lineup, use_container_width=True, hide_index=True)
-
-def match_lineups_dataframe(match, side):
-    team = match.get(side, {})
-    rows = []
-    for key, label in [("lineup", "Wyjściowy"), ("bench", "Ławka")]:
-        for player in team.get(key, []) or []:
-            rows.append(
-                {
-                    "Status": label,
-                    "Zawodnik": event_person_name(player),
-                    "Pozycja": player.get("position", "") if isinstance(player, dict) else "",
-                    "Numer": player.get("shirtNumber", "") if isinstance(player, dict) else "",
-                }
-            )
-    return pd.DataFrame(rows)
+        res_cols[2].markdown(f"**Siła zespołu: {away_name}**")
+        a_data = prediction["away_data"]
+        res_cols[2].write(f"- Atak: `{a_data['attack']:.3f}`")
+        res_cols[2].write(f"- Obrona: `{a_data['defense']:.3f}`")
+        res_cols[2].write(f"- Trend formy: `{a_data['trend']:+.3f}`")
+        if prediction["away_elo"]:
+            res_cols[2].write(f"- ClubElo: `{prediction['away_elo']['elo']:.0f}` (Poz: {prediction['away_elo']['rank']})")
+    else:
+        st.info("Brak wystarczających danych do predykcji.")
 
 def render_match(match, ratings, home_adv, avg_goals, unavailable, clubelo_df=None):
     home = match.get("homeTeam", {})
