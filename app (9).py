@@ -71,104 +71,33 @@ FPL_POSITION = {
     4: "Napastnik",
 }
 
+# Rozszerzony słownik aliasów o warianty bez "FC" i krótsze formy
 TEAM_ALIASES = {
-    "Arsenal FC": "Arsenal",
-    "Aston Villa FC": "Aston Villa",
-    "AFC Bournemouth": "Bournemouth",
-    "Brentford FC": "Brentford",
-    "Brighton & Hove Albion FC": "Brighton",
-    "Burnley FC": "Burnley",
-    "Chelsea FC": "Chelsea",
-    "Crystal Palace FC": "Crystal Palace",
-    "Everton FC": "Everton",
-    "Fulham FC": "Fulham",
-    "Leeds United FC": "Leeds",
-    "Liverpool FC": "Liverpool",
-    "Manchester City FC": "Man City",
-    "Manchester United FC": "Man United",
-    "Newcastle United FC": "Newcastle",
-    "Nottingham Forest FC": "Nottm Forest",
-    "Sunderland AFC": "Sunderland",
-    "Tottenham Hotspur FC": "Tottenham",
-    "West Ham United FC": "West Ham",
-    "Wolverhampton Wanderers FC": "Wolves",
-    "Real Madrid CF": "Real Madrid",
-    "FC Barcelona": "Barcelona",
-    "Club Atlético de Madrid": "Ath Madrid",
-    "Atlético de Madrid": "Ath Madrid",
-    "Athletic Club": "Ath Bilbao",
-    "Real Betis Balompié": "Betis",
-    "Real Sociedad de Fútbol": "Sociedad",
-    "Sevilla FC": "Sevilla",
-    "Valencia CF": "Valencia",
-    "Villarreal CF": "Villarreal",
-    "Getafe CF": "Getafe",
-    "Rayo Vallecano de Madrid": "Vallecano",
-    "RC Celta de Vigo": "Celta",
-    "CA Osasuna": "Osasuna",
-    "Deportivo Alavés": "Alaves",
-    "RCD Mallorca": "Mallorca",
-    "Girona FC": "Girona",
-    "RCD Espanyol de Barcelona": "Espanol",
-    "Elche CF": "Elche",
-    "Levante UD": "Levante",
-    "Real Oviedo": "Oviedo",
-    "AC Milan": "Milan",
-    "FC Internazionale Milano": "Inter",
-    "Juventus FC": "Juventus",
-    "Atalanta BC": "Atalanta",
-    "Bologna FC 1909": "Bologna",
-    "Cagliari Calcio": "Cagliari",
-    "Como 1907": "Como",
-    "ACF Fiorentina": "Fiorentina",
-    "Genoa CFC": "Genoa",
-    "SS Lazio": "Lazio",
-    "Parma Calcio 1913": "Parma",
-    "AS Roma": "Roma",
-    "SSC Napoli": "Napoli",
-    "Torino FC": "Torino",
-    "Udinese Calcio": "Udinese",
-    "US Lecce": "Lecce",
-    "US Sassuolo Calcio": "Sassuolo",
-    "Hellas Verona FC": "Verona",
-    "Pisa SC": "Pisa",
-    "US Cremonese": "Cremonese",
-    "FC Bayern München": "Bayern Munich",
-    "Borussia Dortmund": "Dortmund",
-    "Bayer 04 Leverkusen": "Leverkusen",
-    "RB Leipzig": "RB Leipzig",
-    "Eintracht Frankfurt": "Ein Frankfurt",
-    "VfB Stuttgart": "Stuttgart",
-    "VfL Wolfsburg": "Wolfsburg",
-    "Borussia Mönchengladbach": "M'gladbach",
-    "SC Freiburg": "Freiburg",
-    "TSG 1899 Hoffenheim": "Hoffenheim",
-    "1. FC Köln": "FC Koln",
-    "1. FSV Mainz 05": "Mainz",
-    "SV Werder Bremen": "Werder Bremen",
-    "FC Augsburg": "Augsburg",
-    "1. FC Union Berlin": "Union Berlin",
-    "FC St. Pauli 1910": "St Pauli",
-    "Hamburger SV": "Hamburg",
-    "1. FC Heidenheim 1846": "Heidenheim",
-    "Paris Saint-Germain FC": "Paris SG",
-    "Olympique de Marseille": "Marseille",
-    "Olympique Lyonnais": "Lyon",
-    "AS Monaco FC": "Monaco",
-    "Lille OSC": "Lille",
-    "Stade Rennais FC 1901": "Rennes",
-    "OGC Nice": "Nice",
-    "RC Lens": "Lens",
-    "FC Nantes": "Nantes",
-    "Toulouse FC": "Toulouse",
-    "Montpellier HSC": "Montpellier",
-    "Stade Brestois 29": "Brest",
-    "RC Strasbourg Alsace": "Strasbourg",
-    "Angers SCO": "Angers",
-    "FC Metz": "Metz",
-    "AJ Auxerre": "Auxerre",
-    "Le Havre AC": "Le Havre",
-    "FC Lorient": "Lorient",
+    "Arsenal FC": "Arsenal", "Arsenal": "Arsenal",
+    "Aston Villa FC": "Aston Villa", "Aston Villa": "Aston Villa",
+    "AFC Bournemouth": "Bournemouth", "Bournemouth": "Bournemouth",
+    "Brentford FC": "Brentford", "Brentford": "Brentford",
+    "Brighton & Hove Albion FC": "Brighton", "Brighton": "Brighton", "Brighton & Hove Albion": "Brighton",
+    "Burnley FC": "Burnley", "Burnley": "Burnley",
+    "Chelsea FC": "Chelsea", "Chelsea": "Chelsea",
+    "Crystal Palace FC": "Crystal Palace", "Crystal Palace": "Crystal Palace",
+    "Everton FC": "Everton", "Everton": "Everton",
+    "Fulham FC": "Fulham", "Fulham": "Fulham",
+    "Leeds United FC": "Leeds", "Leeds United": "Leeds", "Leeds": "Leeds",
+    "Leicester City FC": "Leicester", "Leicester City": "Leicester", "Leicester": "Leicester",
+    "Liverpool FC": "Liverpool", "Liverpool": "Liverpool",
+    "Manchester City FC": "Man City", "Manchester City": "Man City",
+    "Manchester United FC": "Man United", "Manchester United": "Man United",
+    "Newcastle United FC": "Newcastle", "Newcastle United": "Newcastle", "Newcastle": "Newcastle",
+    "Nottingham Forest FC": "Nott'm Forest", "Nottingham Forest": "Nott'm Forest", "Nott'm Forest": "Nott'm Forest",
+    "Southampton FC": "Southampton", "Southampton": "Southampton",
+    "Sunderland AFC": "Sunderland", "Sunderland": "Sunderland",
+    "Tottenham Hotspur FC": "Tottenham", "Tottenham Hotspur": "Tottenham", "Tottenham": "Tottenham",
+    "West Ham United FC": "West Ham", "West Ham United": "West Ham", "West Ham": "West Ham",
+    "Wolverhampton Wanderers FC": "Wolves", "Wolverhampton Wanderers": "Wolves", "Wolves": "Wolves",
+    "Real Madrid CF": "Real Madrid", "FC Barcelona": "Barcelona", "Club Atlético de Madrid": "Ath Madrid",
+    "Atlético de Madrid": "Ath Madrid", "Athletic Club": "Ath Bilbao", "Real Betis Balompié": "Betis",
+    "Real Sociedad de Fútbol": "Sociedad", "Sevilla FC": "Sevilla", "Valencia CF": "Valencia",
 }
 
 def normalize_name(value):
@@ -194,11 +123,13 @@ def team_display_name(team):
 def team_model_name(team):
     if not isinstance(team, dict):
         return TEAM_ALIASES.get(str(team), str(team))
+    name = team.get("name", "")
+    short = team.get("shortName", "")
     return (
-        TEAM_ALIASES.get(team.get("name"))
-        or TEAM_ALIASES.get(team.get("shortName"))
-        or team.get("shortName")
-        or team.get("name")
+        TEAM_ALIASES.get(name)
+        or TEAM_ALIASES.get(short)
+        or short
+        or name
         or team.get("tla")
         or "Nieznany zespół"
     )
@@ -210,7 +141,7 @@ def season_start_year(today=None):
 def football_data_season_codes(back=5, forward=0):
     current = season_start_year()
     codes = []
-    for start in range(current - back + 1, current + forward + 1):
+    for start in range(current - back, current + forward + 1):
         codes.append(f"{str(start)[-2:]}{str(start + 1)[-2:]}")
     return codes
 
@@ -223,7 +154,7 @@ def safe_float(value, default=0.0):
         return default
 
 def request_json(url, token=None, params=None, extra_headers=None):
-    headers = {"User-Agent": "football-predictor-streamlit/1.0"}
+    headers = {"User-Agent": "Mozilla/5.0"}
     if token:
         headers["X-Auth-Token"] = token
     if extra_headers:
@@ -241,7 +172,7 @@ def request_csv(url, params=None):
     response = requests.get(
         url,
         params=params or {},
-        headers={"User-Agent": "football-predictor-streamlit/1.0"},
+        headers={"User-Agent": "Mozilla/5.0"},
         timeout=25,
     )
     if response.status_code >= 400:
@@ -353,10 +284,14 @@ def load_understat(understat_code, season):
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_history_csv(csv_code):
     frames = []
-    for season in football_data_season_codes(back=5, forward=0):
+    # Pobieranie używa "Mozilla/5.0", żeby ominąć blokady 403 z football-data.co.uk
+    for season in football_data_season_codes(back=6, forward=1):
         url = f"https://www.football-data.co.uk/mmz4281/{season}/{csv_code}.csv"
         try:
-            frame = pd.read_csv(url, on_bad_lines="skip")
+            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+            if resp.status_code >= 400:
+                continue
+            frame = pd.read_csv(StringIO(resp.text), on_bad_lines="skip")
         except Exception:
             continue
         required = {"Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG"}
@@ -621,46 +556,6 @@ def standings_dataframe(standings):
             )
     return pd.DataFrame(rows)
 
-def scorers_dataframe(scorers):
-    rows = []
-    for item in scorers.get("scorers", []):
-        player = item.get("player", {})
-        team = item.get("team", {})
-        rows.append(
-            {
-                "Zawodnik": player.get("name"),
-                "Pozycja": player.get("section") or player.get("position", ""),
-                "Drużyna": team_display_name(team),
-                "TeamID": team.get("id"),
-                "Gole": item.get("goals", 0),
-                "Asysty": item.get("assists", 0),
-                "Karne": item.get("penalties", 0),
-                "PlayerID": player.get("id"),
-            }
-        )
-    return pd.DataFrame(rows)
-
-def understat_players_dataframe(players):
-    rows = []
-    for item in players:
-        rows.append(
-            {
-                "Zawodnik": item.get("player_name"),
-                "Drużyna": item.get("team_title"),
-                "M": int(safe_float(item.get("games"))),
-                "Min": int(safe_float(item.get("time"))),
-                "Gole": int(safe_float(item.get("goals"))),
-                "xG": safe_float(item.get("xG")),
-                "Asysty": int(safe_float(item.get("assists"))),
-                "xA": safe_float(item.get("xA")),
-                "Strzały": int(safe_float(item.get("shots"))),
-                "Żółte": int(safe_float(item.get("yellow_cards"))),
-                "Czerwone": int(safe_float(item.get("red_cards"))),
-                "Pozycja": item.get("position", ""),
-            }
-        )
-    return pd.DataFrame(rows)
-
 def fpl_players_dataframe(bootstrap):
     elements = bootstrap.get("elements", []) if isinstance(bootstrap, dict) else []
     teams = bootstrap.get("teams", []) if isinstance(bootstrap, dict) else []
@@ -790,10 +685,6 @@ def close_match_view():
     st.session_state.selected_match_id = None
     st.session_state.selected_match_name = None
 
-def close_team_view():
-    st.session_state.selected_team_id = None
-    st.session_state.selected_team_name = None
-
 def score_text(match):
     score = match.get("score", {}).get("fullTime", {})
     home_score = score.get("home")
@@ -861,6 +752,7 @@ def render_match_page(match_id, token, league_code, ratings, home_adv, avg_goals
         cols[2].metric("xG Gospodarzy", f"{prediction['home_xg']:.2f}")
         cols[3].metric("xG Gości", f"{prediction['away_xg']:.2f}")
 
+        # Obliczanie top 5 najbardziej prawdopodobnych wyników
         home_probs = [poisson.pmf(i, prediction['home_xg']) for i in range(6)]
         away_probs = [poisson.pmf(i, prediction['away_xg']) for i in range(6)]
         score_matrix = np.outer(home_probs, away_probs)
@@ -870,11 +762,11 @@ def render_match_page(match_id, token, league_code, ratings, home_adv, avg_goals
             for a in range(6):
                 all_scores.append((f"{h}:{a}", score_matrix[h][a]))
         all_scores.sort(key=lambda x: x[1], reverse=True)
-        top_scores = all_scores[:3]
+        top_scores = all_scores[:5] # Zmiana z Top 3 na Top 5
 
         st.markdown("---")
         res_cols = st.columns(3)
-        res_cols[0].markdown("**Top 3 Najbardziej Prawdopodobne Wyniki:**")
+        res_cols[0].markdown("**Top 5 Najbardziej Prawdopodobne Wyniki:**")
         for idx, (sc, pr) in enumerate(top_scores):
             res_cols[0].write(f"{idx+1}. Wynik **{sc}** (szansa: `{pr:.1%}`)")
 
@@ -968,168 +860,6 @@ def render_standings(standings_df):
         cols[7].write(row["+/-"])
         cols[8].write(row["Pkt"])
 
-def team_understat_filter(df, team_name):
-    if df.empty:
-        return df
-    names = sorted(df["Drużyna"].dropna().unique())
-    target = normalize_name(team_name)
-    scored = [
-        (name, SequenceMatcher(None, target, normalize_name(name)).ratio())
-        for name in names
-    ]
-    best_name, best_score = max(scored, key=lambda item: item[1], default=(None, 0))
-    if best_name and best_score >= 0.45:
-        return df[df["Drużyna"] == best_name].copy()
-    return df[df["Drużyna"].map(lambda value: target in normalize_name(value) or normalize_name(value) in target)].copy()
-
-def render_team_page(
-    team_id,
-    team_name,
-    token,
-    league_code,
-    standings_df,
-    scorers_df,
-    understat_df,
-    ratings,
-    fpl_df=None,
-    clubelo_df=None,
-):
-    detail = get_team_detail(team_id, token)
-    st.divider()
-    top = st.columns([0.8, 3, 1.2])
-    crest = detail.get("crest")
-    if crest:
-        top[0].image(crest, width=96)
-    top[1].subheader(detail.get("name", team_name))
-    top[1].caption(
-        f"{detail.get('venue', 'brak stadionu')} | trener: "
-        f"{detail.get('coach', {}).get('name', 'brak danych')}"
-    )
-    with top[2]:
-        if st.button("Zamknij widok drużyny", use_container_width=True):
-            close_team_view()
-            st.rerun()
-
-    team_row = standings_df[standings_df["TeamID"] == team_id]
-    if not team_row.empty:
-        row = team_row.iloc[0]
-        metrics = st.columns(5)
-        metrics[0].metric("Pozycja", int(row["Poz"]))
-        metrics[1].metric("Punkty", int(row["Pkt"]))
-        metrics[2].metric("Bilans", row["Bramki"])
-        metrics[3].metric("Różnica", int(row["+/-"]))
-        metrics[4].metric("Forma", row["Forma"] or "-")
-
-    squad = pd.DataFrame(detail.get("squad", []))
-    if not squad.empty:
-        squad = squad.rename(
-            columns={
-                "name": "Zawodnik",
-                "position": "Pozycja",
-                "dateOfBirth": "Data ur.",
-                "nationality": "Narodowość",
-            }
-        )
-        visible_cols = [col for col in ["Zawodnik", "Pozycja", "Data ur.", "Narodowość"] if col in squad.columns]
-        squad = squad[visible_cols]
-
-    team_scorers = scorers_df[scorers_df["TeamID"] == team_id].copy() if not scorers_df.empty else pd.DataFrame()
-    team_understat = team_understat_filter(understat_df, team_name)
-    team_fpl = fpl_team_filter(fpl_df, team_name) if fpl_df is not None else pd.DataFrame()
-
-    tabs = st.tabs(["Skład", "Statystyki zawodników", "Dostępność", "Mecze i forma", "Model"])
-    with tabs[0]:
-        if squad.empty:
-            st.info("Football-Data nie zwróciło składu dla tego zespołu.")
-        else:
-            st.dataframe(squad, use_container_width=True, hide_index=True)
-
-    with tabs[1]:
-        left, right = st.columns(2)
-        with left:
-            st.markdown("**Gole i asysty z Football-Data**")
-            if team_scorers.empty:
-                st.info("Brak danych strzelców.")
-            else:
-                st.dataframe(
-                    team_scorers[["Zawodnik", "Pozycja", "Gole", "Asysty", "Karne"]].sort_values(
-                        ["Gole", "Asysty"], ascending=False
-                    ),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-        with right:
-            st.markdown("**xG, xA i kartki z Understat**")
-            if team_understat.empty:
-                st.info("Brak danych Understat.")
-            else:
-                st.dataframe(
-                    team_understat.sort_values(["Min", "xG"], ascending=False),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-    with tabs[2]:
-        if league_code != "PL":
-            st.info("Automatyczna dostępność z FPL działa dla Premier League.")
-        elif team_fpl.empty:
-            st.info("Brak danych FPL.")
-        else:
-            missing = team_unavailable_from_fpl(team_fpl)
-            st.markdown("**Kontuzje i zawieszenia z FPL**")
-            if missing:
-                st.dataframe(
-                    team_fpl[
-                        team_fpl["Skrót"].map(lambda name: any(normalize_name(str(name)) in normalize_name(item) for item in missing))
-                    ][["Zawodnik", "Pozycja", "Status", "Szansa teraz", "News", "Forma", "Punkty"]],
-                    use_container_width=True,
-                    hide_index=True,
-                )
-            else:
-                st.success("Brak istotnych braków w FPL.")
-
-    with tabs[3]:
-        try:
-            team_matches = get_team_matches(team_id, token, league_code).get("matches", [])
-        except Exception:
-            team_matches = []
-        if not team_matches:
-            st.info("Brak meczów.")
-        else:
-            form_rows = []
-            for match in team_matches[-12:]:
-                home = match.get("homeTeam", {})
-                away = match.get("awayTeam", {})
-                score = match.get("score", {}).get("fullTime", {})
-                is_home = home.get("id") == team_id
-                gf = score.get("home", 0) if is_home else score.get("away", 0)
-                ga = score.get("away", 0) if is_home else score.get("home", 0)
-                result = "W" if gf > ga else "R" if gf == ga else "P"
-                form_rows.append(
-                    {
-                        "Data": match.get("utcDate", "")[:10],
-                        "Rywal": team_display_name(away if is_home else home),
-                        "Dom/Wyjazd": "Dom" if is_home else "Wyjazd",
-                        "Wynik": f"{gf}:{ga}",
-                        "Rezultat": result,
-                    }
-                )
-            st.dataframe(pd.DataFrame(form_rows), use_container_width=True, hide_index=True)
-
-    with tabs[4]:
-        model_name = find_rating_name(team_model_name(detail), ratings) or find_rating_name(team_name, ratings)
-        clubelo = clubelo_rating_for_team(team_model_name(detail), clubelo_df) or clubelo_rating_for_team(team_name, clubelo_df)
-        if not model_name:
-            st.info("Model nie znalazł odpowiednika.")
-        else:
-            rating = ratings[model_name]
-            cols = st.columns(5)
-            cols[0].metric("Nazwa w modelu", model_name)
-            cols[1].metric("Siła ataku", f"{rating.get('attack', 1.0):.3f}")
-            cols[2].metric("Siła obrony", f"{rating.get('defense', 1.0):.3f}")
-            cols[3].metric("ClubElo", f"{clubelo['elo']:.0f}" if clubelo else "-")
-            cols[4].metric("Mecze", int(rating.get("matches", 0)))
-
 def init_state():
     st.session_state.setdefault("selected_team_id", None)
     st.session_state.setdefault("selected_team_name", None)
@@ -1164,10 +894,6 @@ def main():
     try:
         with st.spinner("Pobieram dane ligi..."):
             standings, matches, scorers = get_league_bundle(league_code, token.strip())
-            understat_teams, understat_players, understat_season = load_understat(
-                league_meta["understat"],
-                season_start_year(),
-            )
             ratings, home_adv, avg_goals, history = train_prediction_model(league_meta["csv_code"])
             fpl_bootstrap = load_fpl_bootstrap() if league_code == "PL" else {}
             clubelo_df = load_clubelo_snapshot(league_meta["clubelo_country"]) if use_clubelo else pd.DataFrame()
@@ -1176,8 +902,6 @@ def main():
         st.stop()
 
     standings_df = standings_dataframe(standings)
-    scorers_df = scorers_dataframe(scorers)
-    understat_df = understat_players_dataframe(understat_players)
     fpl_df = fpl_players_dataframe(fpl_bootstrap) if league_code == "PL" else pd.DataFrame()
     auto_unavailable = build_auto_unavailable(standings_df, fpl_df) if league_code == "PL" else {}
     active_clubelo = clubelo_df if use_clubelo else pd.DataFrame()
@@ -1233,20 +957,6 @@ def main():
             home_adv,
             avg_goals,
             all_unavailable,
-            active_clubelo,
-        )
-
-    if st.session_state.selected_team_id:
-        render_team_page(
-            st.session_state.selected_team_id,
-            st.session_state.selected_team_name,
-            token.strip(),
-            league_code,
-            standings_df,
-            scorers_df,
-            understat_df,
-            ratings,
-            fpl_df,
             active_clubelo,
         )
 
