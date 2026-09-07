@@ -542,8 +542,8 @@ def split_matches_by_round(matches):
     ]
     last_md = max((match["matchday"] for match in finished), default=None)
     next_md = min((match["matchday"] for match in future), default=None)
-    last_matches = [match for match in finished if match.get("matchday"] == last_md] if last_md else []
-    next_matches = [match for match in future if match.get("matchday"] == next_md] if next_md else []
+    last_matches = ([match for match in finished if match.get("matchday") == last_md] if last_md else [])
+    next_matches = ([match for match in future if match.get("matchday") == next_md] if next_md else [])
     return last_md, last_matches, next_md, next_matches
 
 def standings_dataframe(standings):
@@ -1023,8 +1023,6 @@ def render_match(match, ratings, home_adv, avg_goals, unavailable, clubelo_df=No
     away = match.get("awayTeam", {})
     home_name = team_display_name(home)
     away_name = team_display_name(away)
-    home_model = team_model_name(home)
-    away_model = team_model_name(home)
     score = match.get("score", {}).get("fullTime", {})
     dt = match.get("utcDate", "")[:16].replace("T", " ")
 
